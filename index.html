@@ -977,21 +977,19 @@
 
         function buildLandmarkShareUrl(item) {
             const url = new URL(window.location.href);
-            url.searchParams.set('lat', item.lat);
-            url.searchParams.set('lng', item.lng);
+            url.searchParams.set('id', item.id);
+            url.searchParams.delete('lat');
+            url.searchParams.delete('lng');
             return url.toString();
         }
 
         function getLandmarkFromUrl() {
             const params = new URLSearchParams(window.location.search);
-            const lat = Number(params.get('lat'));
-            const lng = Number(params.get('lng'));
+            const id = Number(params.get('id'));
 
-            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+            if (!Number.isFinite(id)) return null;
 
-            return landmarks.find(item =>
-                Math.abs(item.lat - lat) < 0.0001 && Math.abs(item.lng - lng) < 0.0001
-            ) || null;
+            return landmarks.find(item => item.id === id) || null;
         }
 
         function activateLandmarkFromUrl() {
