@@ -1163,24 +1163,48 @@
             return `Protocol: ${protocol} | Host: ${host} | Secure: ${secure ? 'yes' : 'no'} | Geolocation: ${supported ? 'available' : 'missing'}`;
         }
 
-        function getLocateFailureMessage(err) {
+        function getLocateFailureMessage(err, attemptLabel) {
             if (!window.isSecureContext) {
-                return 'Location requires HTTPS or localhost. Open this page from a local server.';
+                return `Location requires HTTPS or localhost. Open this page from a secure URL. ${getLocationDiagnostics()}`;
             }
 
             switch (err.code) {
                 case 1:
-                    return 'Location permission denied.';
+                    return `Location permission denied. Check the browser site permission for this page. ${getLocationDiagnostics()}`;
                 case 2:
-                    return 'Unable to determine your current location.';
+                    return `Unable to determine your current location${attemptLabel ? ` (${attemptLabel})` : ''}.`;
                 case 3:
-                    return 'Location request timed out. Try again.';
+                    return `Location request timed out${attemptLabel ? ` (${attemptLabel})` : ''}.`;
                 default:
-                    return 'Unable to access your location.';
+                    return `Unable to access your location${attemptLabel ? ` (${attemptLabel})` : ''}.`;
             }
         }
 
-        function flyToLocation(onSuccess) {
+        function applyUserLocation(lat, lng, onSuccess) {
+            userLocation = { lat, lng };
+
+            if (locationMarker) map.removeLayer(locationMarker);
+            locationMarker = L.circleMarker([lat, lng], {
+                radius: 9,
+                fillColor: '#f59e0b',
+                color: '#fff',
+                weight: 3,
+                fillOpacity: 1
+            }).addTo(map).bindTooltip('You are here', { permanent: false, direction: 'top' });
+
+            map.flyTo([lat, lng], Math.max(map.getZoom(), 14), { duration: 1.5 });
+            const activeFilter = document.querySelector('.filter-btn.active')?.getAttribute('data-filter') || 'all';
+            renderMapAndList(activeFilter);
+            if (onSuccess) onSuccess();
+        }
+
+        function requestBrowserLocation(options) {
+            return new Promise((resolve, reject) => {
+                navigator.geolocation.getCurrentPosition(resolve, reject, options);
+            });
+        }
+
+        async function flyToLocation(onSuccess) {
             const icon = document.getElementById('btn-locate-icon');
 
             if (!navigator.geolocation) {
@@ -1196,33 +1220,26 @@
             showLocateToast('Requesting your location...');
             icon.className = 'fa-solid fa-circle-notch fa-spin text-amber-500 text-base';
 
-            navigator.geolocation.getCurrentPosition(
-                pos => {
-                    const { latitude: lat, longitude: lng } = pos.coords;
+            try {
+                const precisePos = await requestBrowserLocation({ enableHighAccuracy: true, timeout: 8000, maximumAge: 0 });
+                const { latitude: lat, longitude: lng } = precisePos.coords;
+                icon.className = 'fa-solid fa-location-crosshairs text-amber-500 text-base';
+                applyUserLocation(lat, lng, onSuccess);
+            } catch (preciseErr) {
+                console.warn('Geolocation error (precise attempt):', preciseErr.message);
+
+                try {
+                    showLocateToast('Retrying location with a broader accuracy request...');
+                    const fallbackPos = await requestBrowserLocation({ enableHighAccuracy: false, timeout: 15000, maximumAge: 300000 });
+                    const { latitude: lat, longitude: lng } = fallbackPos.coords;
                     icon.className = 'fa-solid fa-location-crosshairs text-amber-500 text-base';
-                    userLocation = { lat, lng };
-
-                    if (locationMarker) map.removeLayer(locationMarker);
-                    locationMarker = L.circleMarker([lat, lng], {
-                        radius: 9,
-                        fillColor: '#f59e0b',
-                        color: '#fff',
-                        weight: 3,
-                        fillOpacity: 1
-                    }).addTo(map).bindTooltip('You are here', { permanent: false, direction: 'top' });
-
-                    map.flyTo([lat, lng], Math.max(map.getZoom(), 14), { duration: 1.5 });
-                    const activeFilter = document.querySelector('.filter-btn.active')?.getAttribute('data-filter') || 'all';
-                    renderMapAndList(activeFilter);
-                    if (onSuccess) onSuccess();
-                },
-                err => {
+                    applyUserLocation(lat, lng, onSuccess);
+                } catch (fallbackErr) {
                     icon.className = 'fa-solid fa-location-crosshairs text-slate-400 text-base';
-                    console.warn('Geolocation error:', err.message);
-                    showLocateToast(getLocateFailureMessage(err));
-                },
-                { enableHighAccuracy: true, timeout: 8000 }
-            );
+                    console.warn('Geolocation error (fallback attempt):', fallbackErr.message);
+                    showLocateToast(`${getLocateFailureMessage(fallbackErr, 'fallback attempt')} ${getLocationDiagnostics()}`);
+                }
+            }
         }
 
         document.getElementById('btn-locate').addEventListener('click', () => flyToLocation());
