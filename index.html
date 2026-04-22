@@ -114,6 +114,15 @@
 
         .tab-btn { transition: all 0.2s; border-bottom: 3px solid transparent; }
         .tab-btn.active { border-bottom-color: #f59e0b; color: #d97706; font-weight: 800; }
+
+        .current-location-marker {
+            width: 20px;
+            height: 20px;
+            border-radius: 9999px;
+            background: #2563eb;
+            border: 4px solid rgba(255, 255, 255, 0.95);
+            box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.2);
+        }
     </style>
 </head>
 <body class="text-slate-800 bg-gray-100">
@@ -121,15 +130,17 @@
     <!-- The Map Container -->
     <div id="map"></div>
 
-    <!-- Current Location Button -->
-    <button id="btn-locate" title="Go to my location" class="absolute z-[999] w-10 h-10 bg-white/95 backdrop-blur-sm rounded-xl shadow-lg border border-gray-200 flex items-center justify-center text-slate-500 hover:text-amber-600 hover:border-amber-300 transition-colors focus:outline-none" style="top: 4.25rem; right: 1rem;">
-        <i id="btn-locate-icon" class="fa-solid fa-location-crosshairs text-base"></i>
-    </button>
-
     <!-- Map Style Toggle -->
     <div class="absolute top-4 right-4 sm:right-6 z-[998] bg-white/95 backdrop-blur-sm rounded-xl shadow-lg flex overflow-hidden border border-gray-200 text-xs sm:text-sm font-bold p-1">
         <button id="btn-map-default" class="px-3 sm:px-4 py-2 bg-amber-100 text-amber-800 rounded-lg transition-colors flex items-center gap-2"><i class="fa-solid fa-map"></i> <span id="btn-default-text">Default</span></button>
         <button id="btn-map-satellite" class="px-3 sm:px-4 py-2 text-slate-500 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-2"><i class="fa-solid fa-satellite"></i> <span id="btn-sat-text">Satellite</span></button>
+    </div>
+
+    <!-- Current Location Button -->
+    <div class="absolute bottom-24 right-6 sm:bottom-24 sm:right-6 z-[998]">
+        <button id="locate-me-btn" class="bg-white/95 backdrop-blur-sm text-slate-700 hover:bg-white rounded-full shadow-lg border border-gray-200 w-14 h-14 text-xl font-bold flex items-center justify-center transition-colors" aria-label="My Location" title="My Location">
+            <i class="fa-solid fa-location-crosshairs text-blue-600"></i>
+        </button>
     </div>
 
     <!-- Loading Indicator / File Upload Prompt -->
@@ -276,7 +287,7 @@
     </div>
 
     <!-- Discover Perak Events Panel -->
-    <div id="events-panel" class="absolute bottom-20 right-4 sm:bottom-10 sm:right-6 z-[998] w-72 sm:w-80 bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-amber-100 overflow-hidden transition-all duration-300">
+    <div id="events-panel" class="absolute top-20 right-4 sm:right-6 z-[998] w-72 sm:w-80 bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-amber-100 overflow-hidden transition-all duration-300">
         <!-- Header -->
         <div class="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-amber-500 to-orange-500 cursor-pointer" id="events-panel-header">
             <div class="flex items-center gap-2 text-white">
@@ -328,7 +339,10 @@
                 noLocations: "No locations found.",
                 btnDefault: "Default",
                 btnSat: "Satellite",
-                searchPlaceholder: "Search destinations..."
+                searchPlaceholder: "Search destinations...",
+                distanceAway: "away",
+                etaApprox: "Approx. ETA",
+                currentLocationPopup: "Your current location"
             },
             bm: {
                 subtitle: "DESTINASI PERCUTIAN ANDA",
@@ -344,7 +358,10 @@
                 noLocations: "Tiada lokasi dijumpai.",
                 btnDefault: "Lalai",
                 btnSat: "Satelit",
-                searchPlaceholder: "Cari destinasi..."
+                searchPlaceholder: "Cari destinasi...",
+                distanceAway: "dari lokasi anda",
+                etaApprox: "Anggaran ETA",
+                currentLocationPopup: "Lokasi semasa anda"
             }
         };
 
@@ -656,6 +673,89 @@
 
         L.control.zoom({ position: 'bottomright' }).addTo(map);
 
+        let currentLocationMarker = null;
+        let currentLocationAccuracyCircle = null;
+        let currentLocationCoords = null;
+
+        function setLocateButtonState(isLoading) {
+            const locateBtn = document.getElementById('locate-me-btn');
+            locateBtn.disabled = isLoading;
+            locateBtn.classList.toggle('opacity-70', isLoading);
+            locateBtn.classList.toggle('cursor-wait', isLoading);
+            locateBtn.innerHTML = isLoading
+                ? '<i class="fa-solid fa-circle-notch fa-spin text-blue-600"></i>'
+                : '<i class="fa-solid fa-location-crosshairs text-blue-600"></i>';
+        }
+
+        function showCurrentLocation(lat, lng, accuracy) {
+            const position = [lat, lng];
+            currentLocationCoords = { lat, lng };
+
+            if (!currentLocationMarker) {
+                const locationIcon = L.divIcon({
+                    html: '<div class="current-location-marker"></div>',
+                    className: '',
+                    iconSize: [20, 20],
+                    iconAnchor: [10, 10]
+                });
+
+                currentLocationMarker = L.marker(position, { icon: locationIcon }).addTo(map);
+            } else {
+                currentLocationMarker.setLatLng(position);
+            }
+
+            if (!currentLocationAccuracyCircle) {
+                currentLocationAccuracyCircle = L.circle(position, {
+                    radius: accuracy,
+                    color: '#2563eb',
+                    weight: 1,
+                    fillColor: '#60a5fa',
+                    fillOpacity: 0.18
+                }).addTo(map);
+            } else {
+                currentLocationAccuracyCircle.setLatLng(position);
+                currentLocationAccuracyCircle.setRadius(accuracy);
+            }
+
+            currentLocationMarker.bindPopup(t[currentLang].currentLocationPopup).openPopup();
+            map.flyTo(position, Math.max(map.getZoom(), 13), { duration: 1.2 });
+            renderMapAndList(document.querySelector('.filter-btn.active').getAttribute('data-filter'));
+        }
+
+        function locateCurrentPosition() {
+            if (!navigator.geolocation) {
+                window.alert('Geolocation is not supported by your browser.');
+                return;
+            }
+
+            setLocateButtonState(true);
+
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const { latitude, longitude, accuracy } = position.coords;
+                    showCurrentLocation(latitude, longitude, accuracy || 100);
+                    setLocateButtonState(false);
+                },
+                (error) => {
+                    setLocateButtonState(false);
+
+                    if (error.code === error.PERMISSION_DENIED) {
+                        window.alert('Location access was denied. Please allow location permission and try again.');
+                        return;
+                    }
+
+                    window.alert('Unable to get your current location right now.');
+                },
+                {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 0
+                }
+            );
+        }
+
+        document.getElementById('locate-me-btn').addEventListener('click', locateCurrentPosition);
+
         // --- Layer Toggle Logic ---
         const btnMapDefault = document.getElementById('btn-map-default');
         const btnMapSatellite = document.getElementById('btn-map-satellite');
@@ -796,6 +896,40 @@
             return "#334155";
         }
 
+        function getLandmarkDistanceKm(item) {
+            if (!currentLocationCoords) return null;
+
+            return map.distance(
+                [currentLocationCoords.lat, currentLocationCoords.lng],
+                [item.lat, item.lng]
+            ) / 1000;
+        }
+
+        function getEstimatedEtaMinutes(distanceKm) {
+            if (distanceKm === null) return null;
+
+            let averageSpeedKmh = 50;
+            if (distanceKm > 25) averageSpeedKmh = 60;
+            if (distanceKm > 80) averageSpeedKmh = 75;
+
+            return Math.max(5, Math.round(((distanceKm / averageSpeedKmh) * 60) / 5) * 5);
+        }
+
+        function formatDistance(distanceKm) {
+            if (distanceKm === null) return '';
+            if (distanceKm < 10) return `${distanceKm.toFixed(1)} km`;
+            return `${Math.round(distanceKm)} km`;
+        }
+
+        function formatEta(minutes) {
+            if (minutes === null) return '';
+            if (minutes < 60) return `${minutes} min`;
+
+            const hours = Math.floor(minutes / 60);
+            const remainingMinutes = minutes % 60;
+            return remainingMinutes === 0 ? `${hours} hr` : `${hours} hr ${remainingMinutes} min`;
+        }
+
         function renderMapAndList(filterCategory = "all") {
             const listContainer = document.getElementById('landmark-list');
             const searchQuery = document.getElementById('search-input').value.toLowerCase();
@@ -821,16 +955,13 @@
                 return matchesCategory && matchesSearch;
             });
 
+            if (currentLocationCoords) {
+                filteredData.sort((a, b) => getLandmarkDistanceKm(a) - getLandmarkDistanceKm(b));
+            }
+
             if (filteredData.length === 0) {
                 listContainer.innerHTML = `<div class="p-6 text-center text-slate-400 font-bold text-sm">${t[currentLang].noLocations}</div>`;
                 return;
-            }
-
-            if (userLocation) {
-                filteredData.forEach(item => {
-                    item._dist = haversineKm(userLocation.lat, userLocation.lng, item.lat, item.lng);
-                });
-                filteredData.sort((a, b) => a._dist - b._dist);
             }
 
             filteredData.forEach(item => {
@@ -840,14 +971,27 @@
                 const displayTitle = item.title[currentLang];
                 const displayDesc = item.description[currentLang];
                 const displayCat = t[currentLang][`filter${item.category}`] || item.category;
+                const distanceKm = getLandmarkDistanceKm(item);
+                const etaMinutes = getEstimatedEtaMinutes(distanceKm);
+                const locationMeta = distanceKm === null
+                    ? ''
+                    : `
+                        <div class="mt-2 flex flex-wrap items-center gap-2 text-[11px] font-bold text-slate-500">
+                            <span class="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1">
+                                <i class="fa-solid fa-route text-blue-600"></i>
+                                ${formatDistance(distanceKm)} ${t[currentLang].distanceAway}
+                            </span>
+                            <span class="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-amber-700">
+                                <i class="fa-solid fa-clock text-amber-500"></i>
+                                ${t[currentLang].etaApprox}: ${formatEta(etaMinutes)}
+                            </span>
+                        </div>
+                    `;
 
                 // List Item HTML
                 const listItem = document.createElement('div');
                 listItem.className = `landmark-item p-4 border-b border-gray-100 cursor-pointer`;
                 listItem.id = `list-item-${item.id}`;
-                const distBadge = (userLocation && item._dist != null)
-                    ? `<span class="ml-auto pl-2 text-[10px] font-black text-slate-400 whitespace-nowrap"><i class="fa-solid fa-location-arrow mr-0.5"></i>${formatDistance(item._dist)}</span>`
-                    : '';
 
                 listItem.innerHTML = `
                     <div class="flex items-start gap-4">
@@ -857,11 +1001,11 @@
                         <div class="flex-1 min-w-0">
                             <div class="flex items-start justify-between gap-1">
                                 <h3 class="font-extrabold text-slate-800 text-[15px] leading-tight">${displayTitle}</h3>
-                                ${distBadge}
                             </div>
                             <div class="text-[10px] font-black mt-1 uppercase tracking-widest mb-1.5" style="color: ${colorHex}">
                                 ${item.district} &bull; ${displayCat}
                             </div>
+                            ${locationMeta}
                             <p class="text-sm text-slate-500 line-clamp-2 mt-0.5 leading-snug font-medium">${displayDesc}</p>
                         </div>
                     </div>
@@ -881,6 +1025,20 @@
                 markerDict[item.id] = marker;
 
                 const bgImage = item.imageUrl ? item.imageUrl : `https://picsum.photos/seed/perak${item.id}/400/200`;
+                const popupLocationMeta = distanceKm === null
+                    ? ''
+                    : `
+                        <div class="mb-4 flex flex-wrap items-center gap-2 text-[11px] font-bold">
+                            <span class="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
+                                <i class="fa-solid fa-route text-blue-600"></i>
+                                ${formatDistance(distanceKm)} ${t[currentLang].distanceAway}
+                            </span>
+                            <span class="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-amber-700">
+                                <i class="fa-solid fa-clock text-amber-500"></i>
+                                ${t[currentLang].etaApprox}: ${formatEta(etaMinutes)}
+                            </span>
+                        </div>
+                    `;
 
                 // Popup Template
                 const popupContent = `
@@ -895,6 +1053,7 @@
                         </div>
                         <div class="p-5">
                             <p class="text-xs text-slate-400 font-bold uppercase tracking-wider mb-2"><i class="fa-solid fa-map-pin mr-1" style="color: ${colorHex}"></i> ${item.district}</p>
+                            ${popupLocationMeta}
                             <p class="text-[13px] font-medium text-slate-600 leading-relaxed mb-5">${displayDesc}</p>
                             <a href="https://www.google.com/maps/dir/?api=1&destination=${item.lat},${item.lng}" target="_blank" rel="noopener noreferrer" class="flex items-center justify-center w-full gap-2 px-4 py-3 rounded-lg text-sm font-bold shadow-md hover:shadow-lg transition-all ${colorClass} hover:brightness-110">
                                 <i class="fa-solid fa-diamond-turn-right text-lg text-white"></i> <span class="text-white">${t[currentLang].driveHere}</span>
@@ -1125,239 +1284,6 @@
         }
 
         loadEvents();
-
-        // --- Current Location ---
-        let locationMarker = null;
-        let userLocation = null; // { lat, lng }
-        let isPickingLocation = false;
-
-        function haversineKm(lat1, lng1, lat2, lng2) {
-            const R = 6371;
-            const dLat = (lat2 - lat1) * Math.PI / 180;
-            const dLng = (lng2 - lng1) * Math.PI / 180;
-            const a = Math.sin(dLat / 2) ** 2 +
-                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                      Math.sin(dLng / 2) ** 2;
-            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        }
-
-        function formatDistance(km) {
-            return km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`;
-        }
-
-        function showLocateToast(msg) {
-            const existing = document.getElementById('locate-toast');
-            if (existing) existing.remove();
-            const el = document.createElement('div');
-            el.id = 'locate-toast';
-            el.className = 'absolute z-[1100] bottom-32 right-4 sm:right-6 bg-slate-800 text-white text-xs font-semibold px-4 py-3 rounded-xl shadow-xl max-w-xs leading-relaxed';
-            el.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-amber-400 mr-2"></i>${msg}`;
-            document.body.appendChild(el);
-            setTimeout(() => el.remove(), 6000);
-        }
-
-        function setLocateButtonState(state) {
-            const button = document.getElementById('btn-locate');
-            const icon = document.getElementById('btn-locate-icon');
-            if (!button || !icon) return;
-
-            if (state === 'loading') {
-                button.title = 'Detecting your location';
-                button.classList.add('border-amber-300');
-                icon.className = 'fa-solid fa-circle-notch fa-spin text-amber-500 text-base';
-                return;
-            }
-
-            if (state === 'manual') {
-                button.title = 'Click the map to set your location';
-                button.classList.add('border-amber-300', 'text-amber-600');
-                icon.className = 'fa-solid fa-location-dot text-amber-500 text-base';
-                return;
-            }
-
-            button.title = 'Go to my location';
-            button.classList.remove('border-amber-300', 'text-amber-600');
-            icon.className = 'fa-solid fa-location-crosshairs text-base';
-        }
-
-        function getLocationDiagnostics() {
-            const protocol = window.location.protocol || 'unknown';
-            const host = window.location.host || 'local-file';
-            const supported = !!navigator.geolocation;
-            const secure = !!window.isSecureContext;
-            return `Protocol: ${protocol} | Host: ${host} | Secure: ${secure ? 'yes' : 'no'} | Geolocation: ${supported ? 'available' : 'missing'}`;
-        }
-
-        function getLocateFailureMessage(err, attemptLabel) {
-            if (!window.isSecureContext) {
-                return `Location requires HTTPS or localhost. Open this page from a secure URL. ${getLocationDiagnostics()}`;
-            }
-
-            switch (err.code) {
-                case 1:
-                    return `Location permission denied. Check the browser site permission for this page. ${getLocationDiagnostics()}`;
-                case 2:
-                    return `Unable to determine your current location${attemptLabel ? ` (${attemptLabel})` : ''}.`;
-                case 3:
-                    return `Location request timed out${attemptLabel ? ` (${attemptLabel})` : ''}.`;
-                default:
-                    return `Unable to access your location${attemptLabel ? ` (${attemptLabel})` : ''}.`;
-            }
-        }
-
-        function applyUserLocation(lat, lng, onSuccess, options = {}) {
-            const {
-                tooltip = 'You are here',
-                zoom = 14
-            } = options;
-
-            userLocation = { lat, lng };
-
-            if (locationMarker) map.removeLayer(locationMarker);
-            locationMarker = L.circleMarker([lat, lng], {
-                radius: 9,
-                fillColor: '#f59e0b',
-                color: '#fff',
-                weight: 3,
-                fillOpacity: 1
-            }).addTo(map).bindTooltip(tooltip, { permanent: false, direction: 'top' });
-
-            map.flyTo([lat, lng], Math.max(map.getZoom(), zoom), { duration: 1.5 });
-            const activeFilter = document.querySelector('.filter-btn.active')?.getAttribute('data-filter') || 'all';
-            renderMapAndList(activeFilter);
-            if (onSuccess) onSuccess();
-        }
-
-        function enableManualLocationPick() {
-            isPickingLocation = true;
-            setLocateButtonState('manual');
-            map.getContainer().style.cursor = 'crosshair';
-            showLocateToast('Click anywhere on the map to set your location manually.');
-        }
-
-        function disableManualLocationPick() {
-            isPickingLocation = false;
-            map.getContainer().style.cursor = '';
-            setLocateButtonState('idle');
-        }
-
-        function requestBrowserLocation(options) {
-            return new Promise((resolve, reject) => {
-                navigator.geolocation.getCurrentPosition(resolve, reject, options);
-            });
-        }
-
-        async function requestIpLocation() {
-            const providers = [
-                {
-                    url: 'https://ipwho.is/',
-                    parse: data => {
-                        if (!data?.success || typeof data.latitude !== 'number' || typeof data.longitude !== 'number') {
-                            throw new Error(data?.message || 'ipwho.is failed');
-                        }
-                        return { lat: data.latitude, lng: data.longitude, label: data.city || data.region || data.country || 'your area' };
-                    }
-                },
-                {
-                    url: 'https://ipapi.co/json/',
-                    parse: data => {
-                        if (typeof data?.latitude !== 'number' || typeof data?.longitude !== 'number') {
-                            throw new Error(data?.reason || 'ipapi failed');
-                        }
-                        return { lat: data.latitude, lng: data.longitude, label: data.city || data.region || data.country_name || 'your area' };
-                    }
-                }
-            ];
-
-            let lastError = null;
-
-            for (const provider of providers) {
-                try {
-                    const response = await fetch(provider.url, { cache: 'no-store' });
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                    const data = await response.json();
-                    return provider.parse(data);
-                } catch (err) {
-                    lastError = err;
-                    console.warn('IP location provider failed:', provider.url, err);
-                }
-            }
-
-            throw lastError || new Error('Unable to estimate location from IP');
-        }
-
-        async function flyToLocation(onSuccess) {
-            if (isPickingLocation) {
-                disableManualLocationPick();
-                showLocateToast('Manual location selection cancelled.');
-                return;
-            }
-
-            showLocateToast('Requesting your location...');
-            setLocateButtonState('loading');
-
-            if (navigator.geolocation && window.isSecureContext) {
-                try {
-                    const precisePos = await requestBrowserLocation({ enableHighAccuracy: true, timeout: 8000, maximumAge: 0 });
-                    const { latitude: lat, longitude: lng } = precisePos.coords;
-                    applyUserLocation(lat, lng, onSuccess);
-                    disableManualLocationPick();
-                    return;
-                } catch (preciseErr) {
-                    console.warn('Geolocation error (precise attempt):', preciseErr.message);
-
-                    try {
-                        showLocateToast('Retrying location with a broader accuracy request...');
-                        const fallbackPos = await requestBrowserLocation({ enableHighAccuracy: false, timeout: 15000, maximumAge: 300000 });
-                        const { latitude: lat, longitude: lng } = fallbackPos.coords;
-                        applyUserLocation(lat, lng, onSuccess);
-                        disableManualLocationPick();
-                        return;
-                    } catch (fallbackErr) {
-                        console.warn('Geolocation error (fallback attempt):', fallbackErr.message);
-                        showLocateToast(`${getLocateFailureMessage(fallbackErr, 'fallback attempt')} Trying approximate IP location...`);
-                    }
-                }
-            } else {
-                const browserReason = !navigator.geolocation
-                    ? `Geolocation is not supported in this browser. ${getLocationDiagnostics()}`
-                    : `Precise location requires HTTPS or localhost. ${getLocationDiagnostics()}`;
-                showLocateToast(`${browserReason} Trying approximate IP location...`);
-            }
-            
-            try {
-                const approxPos = await requestIpLocation();
-                applyUserLocation(approxPos.lat, approxPos.lng, onSuccess, {
-                    tooltip: `Approximate location${approxPos.label ? `: ${approxPos.label}` : ''}`,
-                    zoom: 11
-                });
-                disableManualLocationPick();
-                showLocateToast(`Showing approximate location${approxPos.label ? ` near ${approxPos.label}` : ''}.`);
-            } catch (ipErr) {
-                console.warn('IP location lookup failed:', ipErr.message);
-                enableManualLocationPick();
-            }
-        }
-
-        document.getElementById('btn-locate').addEventListener('click', () => flyToLocation());
-
-        map.on('click', (event) => {
-            if (!isPickingLocation) return;
-            applyUserLocation(event.latlng.lat, event.latlng.lng, null, {
-                tooltip: 'Selected location',
-                zoom: 13
-            });
-            disableManualLocationPick();
-            showLocateToast('Manual location set. Distances are now sorted from this point.');
-        });
-
-        if (navigator.permissions?.query) {
-            navigator.permissions.query({ name: 'geolocation' }).then(result => {
-                if (result.state === 'granted') {
-                    flyToLocation();
-                }
-            }).catch(() => {});
-        }
 
     </script>
 </body>
