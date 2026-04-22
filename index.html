@@ -1129,6 +1129,7 @@
         // --- Current Location ---
         let locationMarker = null;
         let userLocation = null; // { lat, lng }
+        let isPickingLocation = false;
 
         function haversineKm(lat1, lng1, lat2, lng2) {
             const R = 6371;
@@ -1153,6 +1154,30 @@
             el.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-amber-400 mr-2"></i>${msg}`;
             document.body.appendChild(el);
             setTimeout(() => el.remove(), 6000);
+        }
+
+        function setLocateButtonState(state) {
+            const button = document.getElementById('btn-locate');
+            const icon = document.getElementById('btn-locate-icon');
+            if (!button || !icon) return;
+
+            if (state === 'loading') {
+                button.title = 'Detecting your location';
+                button.classList.add('border-amber-300');
+                icon.className = 'fa-solid fa-circle-notch fa-spin text-amber-500 text-base';
+                return;
+            }
+
+            if (state === 'manual') {
+                button.title = 'Click the map to set your location';
+                button.classList.add('border-amber-300', 'text-amber-600');
+                icon.className = 'fa-solid fa-location-dot text-amber-500 text-base';
+                return;
+            }
+
+            button.title = 'Go to my location';
+            button.classList.remove('border-amber-300', 'text-amber-600');
+            icon.className = 'fa-solid fa-location-crosshairs text-base';
         }
 
         function getLocationDiagnostics() {
@@ -1180,7 +1205,12 @@
             }
         }
 
-        function applyUserLocation(lat, lng, onSuccess) {
+        function applyUserLocation(lat, lng, onSuccess, options = {}) {
+            const {
+                tooltip = 'You are here',
+                zoom = 14
+            } = options;
+
             userLocation = { lat, lng };
 
             if (locationMarker) map.removeLayer(locationMarker);
@@ -1190,12 +1220,25 @@
                 color: '#fff',
                 weight: 3,
                 fillOpacity: 1
-            }).addTo(map).bindTooltip('You are here', { permanent: false, direction: 'top' });
+            }).addTo(map).bindTooltip(tooltip, { permanent: false, direction: 'top' });
 
-            map.flyTo([lat, lng], Math.max(map.getZoom(), 14), { duration: 1.5 });
+            map.flyTo([lat, lng], Math.max(map.getZoom(), zoom), { duration: 1.5 });
             const activeFilter = document.querySelector('.filter-btn.active')?.getAttribute('data-filter') || 'all';
             renderMapAndList(activeFilter);
             if (onSuccess) onSuccess();
+        }
+
+        function enableManualLocationPick() {
+            isPickingLocation = true;
+            setLocateButtonState('manual');
+            map.getContainer().style.cursor = 'crosshair';
+            showLocateToast('Click anywhere on the map to set your location manually.');
+        }
+
+        function disableManualLocationPick() {
+            isPickingLocation = false;
+            map.getContainer().style.cursor = '';
+            setLocateButtonState('idle');
         }
 
         function requestBrowserLocation(options) {
@@ -1204,45 +1247,109 @@
             });
         }
 
-        async function flyToLocation(onSuccess) {
-            const icon = document.getElementById('btn-locate-icon');
+        async function requestIpLocation() {
+            const providers = [
+                {
+                    url: 'https://ipwho.is/',
+                    parse: data => {
+                        if (!data?.success || typeof data.latitude !== 'number' || typeof data.longitude !== 'number') {
+                            throw new Error(data?.message || 'ipwho.is failed');
+                        }
+                        return { lat: data.latitude, lng: data.longitude, label: data.city || data.region || data.country || 'your area' };
+                    }
+                },
+                {
+                    url: 'https://ipapi.co/json/',
+                    parse: data => {
+                        if (typeof data?.latitude !== 'number' || typeof data?.longitude !== 'number') {
+                            throw new Error(data?.reason || 'ipapi failed');
+                        }
+                        return { lat: data.latitude, lng: data.longitude, label: data.city || data.region || data.country_name || 'your area' };
+                    }
+                }
+            ];
 
-            if (!navigator.geolocation) {
-                showLocateToast(`Geolocation is not supported in this browser. ${getLocationDiagnostics()}`);
-                return;
+            let lastError = null;
+
+            for (const provider of providers) {
+                try {
+                    const response = await fetch(provider.url, { cache: 'no-store' });
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const data = await response.json();
+                    return provider.parse(data);
+                } catch (err) {
+                    lastError = err;
+                    console.warn('IP location provider failed:', provider.url, err);
+                }
             }
 
-            if (!window.isSecureContext) {
-                showLocateToast(`Location requires HTTPS or localhost. Open this page from a local server. ${getLocationDiagnostics()}`);
+            throw lastError || new Error('Unable to estimate location from IP');
+        }
+
+        async function flyToLocation(onSuccess) {
+            if (isPickingLocation) {
+                disableManualLocationPick();
+                showLocateToast('Manual location selection cancelled.');
                 return;
             }
 
             showLocateToast('Requesting your location...');
-            icon.className = 'fa-solid fa-circle-notch fa-spin text-amber-500 text-base';
+            setLocateButtonState('loading');
 
-            try {
-                const precisePos = await requestBrowserLocation({ enableHighAccuracy: true, timeout: 8000, maximumAge: 0 });
-                const { latitude: lat, longitude: lng } = precisePos.coords;
-                icon.className = 'fa-solid fa-location-crosshairs text-amber-500 text-base';
-                applyUserLocation(lat, lng, onSuccess);
-            } catch (preciseErr) {
-                console.warn('Geolocation error (precise attempt):', preciseErr.message);
-
+            if (navigator.geolocation && window.isSecureContext) {
                 try {
-                    showLocateToast('Retrying location with a broader accuracy request...');
-                    const fallbackPos = await requestBrowserLocation({ enableHighAccuracy: false, timeout: 15000, maximumAge: 300000 });
-                    const { latitude: lat, longitude: lng } = fallbackPos.coords;
-                    icon.className = 'fa-solid fa-location-crosshairs text-amber-500 text-base';
+                    const precisePos = await requestBrowserLocation({ enableHighAccuracy: true, timeout: 8000, maximumAge: 0 });
+                    const { latitude: lat, longitude: lng } = precisePos.coords;
                     applyUserLocation(lat, lng, onSuccess);
-                } catch (fallbackErr) {
-                    icon.className = 'fa-solid fa-location-crosshairs text-slate-400 text-base';
-                    console.warn('Geolocation error (fallback attempt):', fallbackErr.message);
-                    showLocateToast(`${getLocateFailureMessage(fallbackErr, 'fallback attempt')} ${getLocationDiagnostics()}`);
+                    disableManualLocationPick();
+                    return;
+                } catch (preciseErr) {
+                    console.warn('Geolocation error (precise attempt):', preciseErr.message);
+
+                    try {
+                        showLocateToast('Retrying location with a broader accuracy request...');
+                        const fallbackPos = await requestBrowserLocation({ enableHighAccuracy: false, timeout: 15000, maximumAge: 300000 });
+                        const { latitude: lat, longitude: lng } = fallbackPos.coords;
+                        applyUserLocation(lat, lng, onSuccess);
+                        disableManualLocationPick();
+                        return;
+                    } catch (fallbackErr) {
+                        console.warn('Geolocation error (fallback attempt):', fallbackErr.message);
+                        showLocateToast(`${getLocateFailureMessage(fallbackErr, 'fallback attempt')} Trying approximate IP location...`);
+                    }
                 }
+            } else {
+                const browserReason = !navigator.geolocation
+                    ? `Geolocation is not supported in this browser. ${getLocationDiagnostics()}`
+                    : `Precise location requires HTTPS or localhost. ${getLocationDiagnostics()}`;
+                showLocateToast(`${browserReason} Trying approximate IP location...`);
+            }
+            
+            try {
+                const approxPos = await requestIpLocation();
+                applyUserLocation(approxPos.lat, approxPos.lng, onSuccess, {
+                    tooltip: `Approximate location${approxPos.label ? `: ${approxPos.label}` : ''}`,
+                    zoom: 11
+                });
+                disableManualLocationPick();
+                showLocateToast(`Showing approximate location${approxPos.label ? ` near ${approxPos.label}` : ''}.`);
+            } catch (ipErr) {
+                console.warn('IP location lookup failed:', ipErr.message);
+                enableManualLocationPick();
             }
         }
 
         document.getElementById('btn-locate').addEventListener('click', () => flyToLocation());
+
+        map.on('click', (event) => {
+            if (!isPickingLocation) return;
+            applyUserLocation(event.latlng.lat, event.latlng.lng, null, {
+                tooltip: 'Selected location',
+                zoom: 13
+            });
+            disableManualLocationPick();
+            showLocateToast('Manual location set. Distances are now sorted from this point.');
+        });
 
         if (navigator.permissions?.query) {
             navigator.permissions.query({ name: 'geolocation' }).then(result => {
