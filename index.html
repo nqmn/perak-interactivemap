@@ -400,6 +400,7 @@
                 category: "Nature", icon: "fa-tree",
                 lat: 5.5414, lng: 101.3855, district: "Hulu Perak",
                 imageUrl: "https://www.tourismperakmalaysia.com/wp-content/uploads/2022/11/Lake-Banding-aerial-view-part-of-Royal-Belum-ecosystem.jpg",
+                youtubeUrl: "https://youtu.be/6eSmOz0Q-5I?si=mdKMBdOeAG-3JTAH",
                 description: {
                     en: "One of the world's oldest rainforests (130 million years old). A sanctuary for rare flora like Rafflesia and Malayan Tigers.",
                     bm: "Salah satu hutan hujan tertua di dunia (130 juta tahun). Tempat perlindungan flora unik seperti Rafflesia dan Harimau Malaya."
@@ -717,11 +718,14 @@
 
             map.flyTo(position, Math.max(map.getZoom(), 13), { duration: 1.2 });
             renderMapAndList(document.querySelector('.filter-btn.active').getAttribute('data-filter'));
+            activateLandmarkFromUrl();
         }
 
-        function locateCurrentPosition() {
+        function locateCurrentPosition(options = {}) {
+            const { silent = false } = options;
+
             if (!navigator.geolocation) {
-                window.alert('Geolocation is not supported by your browser.');
+                if (!silent) window.alert('Geolocation is not supported by your browser.');
                 return;
             }
 
@@ -737,11 +741,13 @@
                     setLocateButtonState(false);
 
                     if (error.code === error.PERMISSION_DENIED) {
-                        window.alert('Location access was denied. Please allow location permission and try again.');
+                        if (!silent) {
+                            window.alert('Location access was denied. Please allow location permission and try again.');
+                        }
                         return;
                     }
 
-                    window.alert('Unable to get your current location right now.');
+                    if (!silent) window.alert('Unable to get your current location right now.');
                 },
                 {
                     enableHighAccuracy: true,
@@ -752,6 +758,7 @@
         }
 
         document.getElementById('locate-me-btn').addEventListener('click', locateCurrentPosition);
+        window.addEventListener('load', () => locateCurrentPosition({ silent: true }));
 
         // --- Layer Toggle Logic ---
         const btnMapDefault = document.getElementById('btn-map-default');
@@ -927,6 +934,31 @@
             return remainingMinutes === 0 ? `${hours} hr` : `${hours} hr ${remainingMinutes} min`;
         }
 
+        function buildLandmarkShareUrl(item) {
+            const url = new URL(window.location.href);
+            url.searchParams.set('lat', item.lat);
+            url.searchParams.set('lng', item.lng);
+            return url.toString();
+        }
+
+        function getLandmarkFromUrl() {
+            const params = new URLSearchParams(window.location.search);
+            const lat = Number(params.get('lat'));
+            const lng = Number(params.get('lng'));
+
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+            return landmarks.find(item =>
+                Math.abs(item.lat - lat) < 0.0001 && Math.abs(item.lng - lng) < 0.0001
+            ) || null;
+        }
+
+        function activateLandmarkFromUrl() {
+            const sharedLandmark = getLandmarkFromUrl();
+            if (!sharedLandmark || !markerDict[sharedLandmark.id]) return;
+            activateLandmark(sharedLandmark.id);
+        }
+
         function renderMapAndList(filterCategory = "all") {
             const listContainer = document.getElementById('landmark-list');
             const searchQuery = document.getElementById('search-input').value.toLowerCase();
@@ -1036,6 +1068,18 @@
                             </span>
                         </div>
                     `;
+                const popupShareActions = item.youtubeUrl
+                    ? `
+                        <div class="mb-3 flex items-center justify-center gap-3">
+                            <a href="https://wa.me/?text=${encodeURIComponent(`${displayTitle} - ${buildLandmarkShareUrl(item)}`)}" target="_blank" rel="noopener noreferrer" aria-label="Share on WhatsApp" title="Share on WhatsApp" class="inline-flex items-center justify-center w-9 h-9 rounded-full shadow-sm hover:shadow-md transition-all bg-slate-100 hover:bg-slate-200 border border-slate-200">
+                                <i class="fa-brands fa-whatsapp text-sm text-slate-600"></i>
+                            </a>
+                            <a href="${item.youtubeUrl}" target="_blank" rel="noopener noreferrer" aria-label="Open YouTube video" title="Open YouTube video" class="inline-flex items-center justify-center w-9 h-9 rounded-full shadow-sm hover:shadow-md transition-all bg-slate-100 hover:bg-slate-200 border border-slate-200">
+                                <i class="fa-brands fa-youtube text-sm text-slate-600"></i>
+                            </a>
+                        </div>
+                    `
+                    : '';
 
                 // Popup Template
                 const popupContent = `
@@ -1052,6 +1096,7 @@
                             <p class="text-xs text-slate-400 font-bold uppercase tracking-wider mb-2"><i class="fa-solid fa-map-pin mr-1" style="color: ${colorHex}"></i> ${item.district}</p>
                             ${popupLocationMeta}
                             <p class="text-[13px] font-medium text-slate-600 leading-relaxed mb-5">${displayDesc}</p>
+                            ${popupShareActions}
                             <a href="https://www.google.com/maps/dir/?api=1&destination=${item.lat},${item.lng}" target="_blank" rel="noopener noreferrer" class="flex items-center justify-center w-full gap-2 px-4 py-3 rounded-lg text-sm font-bold shadow-md hover:shadow-lg transition-all ${colorClass} hover:brightness-110">
                                 <i class="fa-solid fa-diamond-turn-right text-lg text-white"></i> <span class="text-white">${t[currentLang].driveHere}</span>
                             </a>
@@ -1123,6 +1168,7 @@
         }
 
         renderMapAndList();
+        activateLandmarkFromUrl();
 
         // --- Filters & Tabs & Language Logic ---
         document.getElementById('lang-toggle').addEventListener('click', () => {
