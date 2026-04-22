@@ -341,8 +341,7 @@
                 btnSat: "Satellite",
                 searchPlaceholder: "Search destinations...",
                 distanceAway: "away",
-                etaApprox: "Approx. ETA",
-                currentLocationPopup: "Your current location"
+                etaApprox: "Approx. ETA"
             },
             bm: {
                 subtitle: "DESTINASI PERCUTIAN ANDA",
@@ -360,8 +359,7 @@
                 btnSat: "Satelit",
                 searchPlaceholder: "Cari destinasi...",
                 distanceAway: "dari lokasi anda",
-                etaApprox: "Anggaran ETA",
-                currentLocationPopup: "Lokasi semasa anda"
+                etaApprox: "Anggaran ETA"
             }
         };
 
@@ -717,7 +715,6 @@
                 currentLocationAccuracyCircle.setRadius(accuracy);
             }
 
-            currentLocationMarker.bindPopup(t[currentLang].currentLocationPopup).openPopup();
             map.flyTo(position, Math.max(map.getZoom(), 13), { duration: 1.2 });
             renderMapAndList(document.querySelector('.filter-btn.active').getAttribute('data-filter'));
         }
