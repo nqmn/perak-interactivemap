@@ -1,0 +1,1240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Perak Interactive Guide Map - #PromisingPerak</title>
+    
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts for Brochure typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800;900&display=swap" rel="stylesheet">
+    
+    <!-- Leaflet CSS for Map -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+
+    <style>
+        body, html { 
+            margin: 0; padding: 0; height: 100%; overflow: hidden; 
+            font-family: 'Nunito', sans-serif;
+        }
+        
+        #map { width: 100vw; height: 100vh; z-index: 10; background: #e5e7eb; }
+        
+        /* Custom map marker icons */
+        .custom-marker {
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -1px rgba(0, 0, 0, 0.1);
+            border: 2px solid white;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        
+        /* Color themes for markers */
+        .marker-heritage { background-color: #d97706; /* amber-600 */ }
+        .marker-nature { background-color: #059669; /* emerald-600 */ }
+        .marker-fun { background-color: #2563eb; /* blue-600 */ }
+
+        .custom-marker.active-marker {
+            transform: scale(1.3);
+            z-index: 1000 !important;
+            box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.8), 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+        }
+
+        .custom-marker.hover-marker {
+            transform: scale(1.15);
+            z-index: 900 !important;
+        }
+
+        /* Leaflet popup styling override */
+        .leaflet-popup-content-wrapper {
+            border-radius: 1rem;
+            padding: 0;
+            overflow: hidden;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.1);
+        }
+        .leaflet-popup-content { margin: 0; width: 300px !important; }
+        .leaflet-popup-tip-container { display: none; }
+
+        /* District Tooltip */
+        .district-tooltip {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255,255,255,0.5);
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+            border-radius: 8px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #1e293b;
+            padding: 6px 10px;
+        }
+        .leaflet-tooltip-left.district-tooltip::before,
+        .leaflet-tooltip-right.district-tooltip::before,
+        .leaflet-tooltip-top.district-tooltip::before,
+        .leaflet-tooltip-bottom.district-tooltip::before { display: none; }
+
+        /* Landmark Tooltip */
+        .landmark-tooltip {
+            background-color: #0f172a;
+            color: white;
+            border: none;
+            border-radius: 0.5rem;
+            font-weight: 800;
+            padding: 6px 12px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);
+            font-size: 13px;
+        }
+        .leaflet-tooltip-top.landmark-tooltip::before { border-top-color: #0f172a; }
+
+        /* Scrollbar customization */
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; height: 5px;}
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        /* List item active state */
+        .landmark-item { transition: all 0.2s ease; border-left: 4px solid transparent; }
+        .landmark-item:hover { background-color: #f8fafc; transform: translateX(2px); }
+        .landmark-item.active { background-color: #fefce8; border-left-color: #f59e0b; }
+
+        /* Mobile specific panel toggling */
+        #side-panel { transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1); }
+        @media (max-width: 639px) {
+            #side-panel.collapsed { transform: translateX(-100%); }
+        }
+
+        .tab-btn { transition: all 0.2s; border-bottom: 3px solid transparent; }
+        .tab-btn.active { border-bottom-color: #f59e0b; color: #d97706; font-weight: 800; }
+    </style>
+</head>
+<body class="text-slate-800 bg-gray-100">
+
+    <!-- The Map Container -->
+    <div id="map"></div>
+
+    <!-- Current Location Button -->
+    <button id="btn-locate" title="Go to my location" class="absolute z-[999] w-10 h-10 bg-white/95 backdrop-blur-sm rounded-xl shadow-lg border border-gray-200 flex items-center justify-center text-slate-500 hover:text-amber-600 hover:border-amber-300 transition-colors focus:outline-none" style="top: 4.25rem; right: 1rem;">
+        <i id="btn-locate-icon" class="fa-solid fa-location-crosshairs text-base"></i>
+    </button>
+
+    <!-- Map Style Toggle -->
+    <div class="absolute top-4 right-4 sm:right-6 z-[998] bg-white/95 backdrop-blur-sm rounded-xl shadow-lg flex overflow-hidden border border-gray-200 text-xs sm:text-sm font-bold p-1">
+        <button id="btn-map-default" class="px-3 sm:px-4 py-2 bg-amber-100 text-amber-800 rounded-lg transition-colors flex items-center gap-2"><i class="fa-solid fa-map"></i> <span id="btn-default-text">Default</span></button>
+        <button id="btn-map-satellite" class="px-3 sm:px-4 py-2 text-slate-500 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-2"><i class="fa-solid fa-satellite"></i> <span id="btn-sat-text">Satellite</span></button>
+    </div>
+
+    <!-- Loading Indicator / File Upload Prompt -->
+    <div id="loading-toast" class="absolute top-20 right-4 sm:right-6 bg-white/95 backdrop-blur-sm px-4 py-3 rounded-xl shadow-lg z-[1000] flex flex-col gap-3 transition-opacity duration-500 border border-amber-200 max-w-sm">
+        <div id="toast-status" class="flex items-center gap-3">
+            <i class="fa-solid fa-circle-notch fa-spin text-amber-500 text-lg" id="toast-spinner"></i>
+            <span class="text-sm font-bold text-slate-700 tracking-wide" id="toast-text">Mapping Districts...</span>
+        </div>
+        <div id="file-upload-container" class="hidden flex-col gap-2 pt-2 border-t border-gray-100">
+            <p class="text-xs text-slate-500 font-semibold">Please select your <b>malaysia.district-jakim.geojson.txt</b> file to load the borders.</p>
+            <input type="file" id="geojson-file-input" accept=".txt,.json,.geojson" class="text-xs w-full text-slate-600 file:mr-2 file:py-1.5 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-amber-100 file:text-amber-800 hover:file:bg-amber-200 cursor-pointer transition-colors">
+        </div>
+    </div>
+
+    <!-- Floating Left Panel -->
+    <div id="side-panel" class="absolute top-0 left-0 h-full w-full sm:w-[400px] bg-white z-[1000] shadow-[0_0_40px_rgba(0,0,0,0.2)] flex flex-col collapsed sm:transform-none">
+        
+        <!-- Vibrant Brochure Header -->
+        <div class="px-6 py-8 bg-gradient-to-br from-yellow-400 via-amber-500 to-orange-500 text-white shadow-md flex flex-col z-20 shrink-0 relative overflow-hidden">
+            <!-- decorative background pattern -->
+            <div class="absolute -right-8 -top-8 opacity-20 transform rotate-12 scale-150 mix-blend-overlay">
+               <i class="fa-solid fa-map-location-dot text-9xl"></i>
+            </div>
+            
+            <div class="relative z-10 flex justify-between items-start">
+                <div>
+                    <div class="inline-block bg-black/20 backdrop-blur-sm px-2 py-1 rounded text-[10px] font-black tracking-widest uppercase mb-2">#PromisingPerak</div>
+                    <h1 class="text-4xl font-black tracking-tight leading-none mb-1 text-white drop-shadow-md">PERAK</h1>
+                    <p id="subtitle-text" class="text-sm font-extrabold text-yellow-100 tracking-wide drop-shadow-sm">YOUR HOLIDAY DESTINATION</p>
+                </div>
+                <div class="flex gap-2">
+                    <!-- Language Toggle -->
+                    <button id="lang-toggle" class="bg-black/20 hover:bg-black/30 text-white text-[11px] font-black px-3 py-1.5 rounded-full transition-colors flex items-center gap-1 border border-white/10 shadow-sm focus:outline-none">
+                        <span id="lang-en" class="text-amber-300">EN</span> <span class="opacity-40 font-normal">/</span> <span id="lang-bm" class="opacity-60">BM</span>
+                    </button>
+                    <!-- Mobile Close Button -->
+                    <button id="close-panel-btn" class="sm:hidden w-8 h-8 flex items-center justify-center bg-black/20 rounded-full text-white hover:bg-black/30 focus:outline-none transition-colors">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <div class="flex border-b border-gray-200 bg-gray-50 shrink-0">
+            <button class="tab-btn active flex-1 py-3 text-sm font-semibold text-slate-500" data-target="destinasi-view">
+                <i class="fa-solid fa-location-dot mr-1"></i> <span id="tab-dest-text">Destinations</span>
+            </button>
+            <button class="tab-btn flex-1 py-3 text-sm font-semibold text-slate-500" data-target="info-view">
+                <i class="fa-solid fa-circle-info mr-1"></i> <span id="tab-info-text">General Info</span>
+            </button>
+        </div>
+
+        <!-- View 1: Destinations -->
+        <div id="destinasi-view" class="flex-1 flex flex-col overflow-hidden">
+            <!-- Search Bar -->
+            <div class="px-4 pt-4 pb-2 bg-white shrink-0 z-10">
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <i class="fa-solid fa-magnifying-glass text-gray-400"></i>
+                    </div>
+                    <input type="text" id="search-input" class="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all bg-gray-50 text-slate-700 placeholder-gray-400 font-semibold" placeholder="Search destinations...">
+                </div>
+            </div>
+
+            <!-- Filter Bar -->
+            <div class="px-4 py-3 bg-white border-b border-gray-100 shrink-0 shadow-sm z-10 flex gap-2 overflow-x-auto custom-scrollbar">
+                <button class="filter-btn px-4 py-1.5 bg-yellow-200 text-amber-900 rounded-full text-xs font-bold whitespace-nowrap active border border-yellow-400 transition-colors" data-filter="all"><span id="filter-all-text">All</span></button>
+                <button class="filter-btn px-4 py-1.5 bg-gray-100 text-gray-500 rounded-full text-xs font-bold whitespace-nowrap hover:bg-gray-200 transition-colors border border-transparent" data-filter="Heritage"><i class="fa-solid fa-landmark text-amber-600 mr-1"></i> <span id="filter-heritage-text">Heritage</span></button>
+                <button class="filter-btn px-4 py-1.5 bg-gray-100 text-gray-500 rounded-full text-xs font-bold whitespace-nowrap hover:bg-gray-200 transition-colors border border-transparent" data-filter="Nature"><i class="fa-solid fa-leaf text-emerald-600 mr-1"></i> <span id="filter-nature-text">Nature</span></button>
+                <button class="filter-btn px-4 py-1.5 bg-gray-100 text-gray-500 rounded-full text-xs font-bold whitespace-nowrap hover:bg-gray-200 transition-colors border border-transparent" data-filter="Fun"><i class="fa-solid fa-face-smile text-blue-600 mr-1"></i> <span id="filter-fun-text">Fun & Family</span></button>
+            </div>
+
+            <!-- List Container -->
+            <div id="landmark-list" class="flex-1 overflow-y-auto custom-scrollbar relative pb-20 sm:pb-0 bg-white">
+                <!-- JavaScript will inject list items here -->
+            </div>
+        </div>
+
+        <!-- View 2: Maklumat Am (Info Directory) -->
+        <div id="info-view" class="hidden flex-1 overflow-y-auto custom-scrollbar bg-slate-50 p-6 pb-24 sm:pb-6">
+            
+            <div class="space-y-4">
+                <!-- Info Card 1 -->
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                    <h3 class="font-bold text-sm text-slate-800 mb-1">Tourism Perak Management Berhad</h3>
+                    <p class="text-xs text-slate-500 mb-2"><i class="fa-solid fa-location-dot w-4 text-center"></i> No. 4, Labuh Ceylan, 30350 Ipoh</p>
+                    <div class="flex gap-3 text-xs font-semibold">
+                        <a href="tel:+6052499966" class="text-amber-600 bg-amber-50 px-2 py-1 rounded"><i class="fa-solid fa-phone mr-1"></i> +605-249 9966</a>
+                        <span class="text-slate-400 bg-slate-100 px-2 py-1 rounded"><i class="fa-solid fa-globe mr-1"></i> Web</span>
+                    </div>
+                </div>
+
+                <!-- Info Card 2 -->
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                    <h3 class="font-bold text-sm text-slate-800 mb-1">Pusat Penerangan Pelancongan Ipoh (TIC)</h3>
+                    <p class="text-xs text-slate-500 mb-2"><i class="fa-solid fa-location-dot w-4 text-center"></i> 1, Jalan Tun Sambanthan, Ipoh</p>
+                    <div class="flex gap-3 text-xs font-semibold">
+                        <a href="tel:+6052083156" class="text-amber-600 bg-amber-50 px-2 py-1 rounded"><i class="fa-solid fa-phone mr-1"></i> +605-208 3156</a>
+                    </div>
+                </div>
+
+                <!-- Info Card 3 -->
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                    <h3 class="font-bold text-sm text-slate-800 mb-1">Pejabat MOTAC Negeri Perak</h3>
+                    <p class="text-xs text-slate-500 mb-2"><i class="fa-solid fa-location-dot w-4 text-center"></i> Bandar Ipoh Raya, 30000 Ipoh</p>
+                    <div class="flex gap-3 text-xs font-semibold">
+                        <a href="tel:+6052550413" class="text-amber-600 bg-amber-50 px-2 py-1 rounded"><i class="fa-solid fa-phone mr-1"></i> +605-255 0413</a>
+                    </div>
+                </div>
+
+                <h2 class="text-lg font-black text-slate-800 mt-6 mb-4 flex items-center"><i class="fa-solid fa-truck-medical text-red-500 mr-2"></i> <span id="medical-title">Medical Centers (Emergency)</span></h2>
+                
+                <div class="grid grid-cols-1 gap-2">
+                    <a href="tel:+6052085000" class="flex justify-between items-center bg-white p-3 rounded-lg border border-gray-100 shadow-sm hover:border-amber-300 transition-colors">
+                        <span class="text-xs font-bold text-slate-700">Hospital Raja Permaisuri Bainun</span>
+                        <span class="text-xs font-semibold text-amber-600">+605-208 5000</span>
+                    </a>
+                    <a href="tel:+6052408777" class="flex justify-between items-center bg-white p-3 rounded-lg border border-gray-100 shadow-sm hover:border-amber-300 transition-colors">
+                        <span class="text-xs font-bold text-slate-700">KPJ Ipoh Specialist Hospital</span>
+                        <span class="text-xs font-semibold text-amber-600">+605-240 8777</span>
+                    </a>
+                    <a href="tel:+6058071040" class="flex justify-between items-center bg-white p-3 rounded-lg border border-gray-100 shadow-sm hover:border-amber-300 transition-colors">
+                        <span class="text-xs font-bold text-slate-700">Taiping Medical Centre</span>
+                        <span class="text-xs font-semibold text-amber-600">+605-807 1040</span>
+                    </a>
+                </div>
+                
+                <div id="data-extracted-text" class="mt-6 text-center text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                    Data extracted from<br/>PERAK MAP 15 X 14 BM.pdf
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tourism Perak Floating Logo -->
+    <div class="absolute top-4 left-4 sm:left-[25rem] z-[999] pointer-events-none pl-3">
+        <img src="https://www.tourismperakmalaysia.com/wp-content/uploads/2025/01/logo-TP-PromisingPerak-2025.png" alt="Tourism Perak" class="h-10 sm:h-12 w-auto opacity-50 drop-shadow-md">
+    </div>
+
+    <!-- Footer Credit -->
+    <div class="absolute bottom-4 left-4 sm:left-[25rem] z-[999] pointer-events-none pl-3">
+        <p class="text-[11px] text-slate-500 opacity-60">&copy; 2026 Remake by NQMN &mdash; <a href="https://github.com/nqmn" target="_blank" rel="noopener noreferrer" class="underline pointer-events-auto hover:text-slate-700">github.com/nqmn</a></p>
+    </div>
+
+    <!-- Discover Perak Events Panel -->
+    <div id="events-panel" class="absolute bottom-20 right-4 sm:bottom-10 sm:right-6 z-[998] w-72 sm:w-80 bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-amber-100 overflow-hidden transition-all duration-300">
+        <!-- Header -->
+        <div class="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-amber-500 to-orange-500 cursor-pointer" id="events-panel-header">
+            <div class="flex items-center gap-2 text-white">
+                <i class="fa-solid fa-calendar-star text-lg"></i>
+                <div>
+                    <p class="text-xs font-black uppercase tracking-widest opacity-80 leading-none">Discover Perak</p>
+                    <p class="text-sm font-black leading-tight">Upcoming Events</p>
+                </div>
+            </div>
+            <button id="events-panel-toggle" class="text-white/80 hover:text-white transition-colors focus:outline-none">
+                <i id="events-panel-chevron" class="fa-solid fa-chevron-down text-sm transition-transform duration-300"></i>
+            </button>
+        </div>
+        <!-- Event List -->
+        <div id="events-list" class="max-h-72 overflow-y-auto custom-scrollbar divide-y divide-gray-100">
+            <div class="flex items-center justify-center gap-2 py-6 text-slate-400 text-sm">
+                <i class="fa-solid fa-circle-notch fa-spin"></i> Loading events...
+            </div>
+        </div>
+    </div>
+
+    <!-- Mobile Open Panel Button -->
+    <button id="open-panel-btn" class="sm:hidden absolute bottom-6 right-6 z-[999] bg-gradient-to-r from-amber-500 to-orange-500 text-white w-14 h-14 rounded-full shadow-[0_10px_25px_rgba(245,158,11,0.5)] flex items-center justify-center text-xl hover:scale-105 transition-transform focus:outline-none border-2 border-white">
+        <i class="fa-solid fa-map-location-dot"></i>
+    </button>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Preloaded GeoJSON data -->
+    <script src="geojson-data.js"></script>
+
+    <script>
+        // Language Configuration
+        let currentLang = 'en';
+
+        const t = {
+            en: {
+                subtitle: "YOUR HOLIDAY DESTINATION",
+                tabDest: "Destinations",
+                tabInfo: "General Info",
+                filterall: "All",
+                filterHeritage: "Heritage",
+                filterNature: "Nature",
+                filterFun: "Fun & Family",
+                medicalTitle: "Medical Centers (Emergency)",
+                dataExtracted: "Data extracted from",
+                driveHere: "Drive Here",
+                noLocations: "No locations found.",
+                btnDefault: "Default",
+                btnSat: "Satellite",
+                searchPlaceholder: "Search destinations..."
+            },
+            bm: {
+                subtitle: "DESTINASI PERCUTIAN ANDA",
+                tabDest: "Destinasi",
+                tabInfo: "Maklumat Am",
+                filterall: "Semua",
+                filterHeritage: "Warisan",
+                filterNature: "Alam Semulajadi",
+                filterFun: "Hiburan",
+                medicalTitle: "Pusat Perubatan (Kecemasan)",
+                dataExtracted: "Data diekstrak dari",
+                driveHere: "Bawa Saya ke Sini",
+                noLocations: "Tiada lokasi dijumpai.",
+                btnDefault: "Lalai",
+                btnSat: "Satelit",
+                searchPlaceholder: "Cari destinasi..."
+            }
+        };
+
+        // Pinahusay na Data mula sa PDF at Nakaraang Bersyon
+        const landmarks = [
+            {
+                id: 1, title: { en: "Leaning Tower of Teluk Intan", bm: "Menara Condong Teluk Intan" }, 
+                category: "Heritage", icon: "fa-monument",
+                lat: 4.0253, lng: 101.0194, district: "Hilir Perak",
+                imageUrl: "https://www.tourismperakmalaysia.com/wp-content/uploads/2022/10/2-Leaning-Tower-of-Teluk-Intan-1980x1320.jpg",
+                description: {
+                    en: "An iconic eight-storey pagoda-like structure constructed in 1885 originally as a water storage tower. Famous for its unique tilt similar to the Tower of Pisa.",
+                    bm: "Menara condong lapan tingkat yang ikonik dibina pada 1885. Terkenal kerana kecondongannya yang unik seakan Menara Pisa."
+                }
+            },
+            {
+                id: 2, title: { en: "Pangkor Island", bm: "Pulau Pangkor" }, 
+                category: "Nature", icon: "fa-umbrella-beach",
+                lat: 4.2185, lng: 100.5604, district: "Manjung",
+                imageUrl: "https://www.tourismperakmalaysia.com/wp-content/uploads/2022/11/pulau-pangkor.jpg",
+                description: {
+                    en: "An idyllic tropical retreat boasting unspoiled beaches, charming fishing villages, and upscale resorts.",
+                    bm: "Pulau percutian tropika dengan pantai yang belum tercemar, perkampungan nelayan dan resort percutian keluarga."
+                }
+            },
+            {
+                id: 3, title: { en: "Tempurung Cave", bm: "Gua Tempurung" }, 
+                category: "Nature", icon: "fa-mountain",
+                lat: 4.4144, lng: 101.1880, district: "Kampar",
+                imageUrl: "https://www.tourismperakmalaysia.com/wp-content/uploads/2022/11/Tempurung-Cave.jpg",
+                description: {
+                    en: "Peninsular Malaysia's largest limestone cave in Gopeng. A 400-million-year-old marvel featuring a captivating honeycombed cave system.",
+                    bm: "Gua batu kapur terbesar di Semenanjung Malaysia di Gopeng, berusia 400 juta tahun dengan sistem kubah gergasi."
+                }
+            },
+            {
+                id: 4, title: { en: "Royal Belum State Park", bm: "Taman Negeri Royal Belum" }, 
+                category: "Nature", icon: "fa-tree",
+                lat: 5.5414, lng: 101.3855, district: "Hulu Perak",
+                imageUrl: "https://www.tourismperakmalaysia.com/wp-content/uploads/2022/11/Lake-Banding-aerial-view-part-of-Royal-Belum-ecosystem.jpg",
+                description: {
+                    en: "One of the world's oldest rainforests (130 million years old). A sanctuary for rare flora like Rafflesia and Malayan Tigers.",
+                    bm: "Salah satu hutan hujan tertua di dunia (130 juta tahun). Tempat perlindungan flora unik seperti Rafflesia dan Harimau Malaya."
+                }
+            },
+            {
+                id: 5, title: { en: "Ipoh Heritage Town", bm: "Bandar Warisan Ipoh" }, 
+                category: "Heritage", icon: "fa-city",
+                lat: 4.5954, lng: 101.0779, district: "Kinta",
+                imageUrl: "https://www.tourismperakmalaysia.com/wp-content/uploads/2022/10/IPOH-1980x1319.jpg",
+                description: {
+                    en: "A perfect fusion of classic and modern charm. Famous for its well-preserved colonial buildings, vibrant mural street art, and legendary culinary scene like Ipoh White Coffee.",
+                    bm: "Gabungan pesona klasik dan moden. Terkenal dengan bangunan kolonial, seni jalanan mural, dan Kopi Putih Ipoh."
+                }
+            },
+            {
+                id: 6, title: { en: "Ubudiah Mosque", bm: "Masjid Ubudiah" }, 
+                category: "Heritage", icon: "fa-mosque",
+                lat: 4.7640, lng: 100.9507, district: "Kuala Kangsar",
+                imageUrl: "https://www.tourismperakmalaysia.com/wp-content/uploads/2022/10/Masjid-Ubudiah.jpg",
+                description: {
+                    en: "Located in the Royal Town of Kuala Kangsar. An architectural marvel boasting magnificent golden domes and minarets in Moorish and Moghul styles.",
+                    bm: "Terletak di Bandar Diraja Kuala Kangsar. Keajaiban seni bina dengan kubah emas berkonsepkan Moorish dan Moghul."
+                }
+            },
+            {
+                id: 7, title: { en: "Zoo Taiping & Night Safari", bm: "Zoo Taiping & Night Safari" }, 
+                category: "Fun", icon: "fa-hippo",
+                lat: 4.8532, lng: 100.7490, district: "Larut, Matang & Selama",
+                imageUrl: "https://www.tourismperakmalaysia.com/wp-content/uploads/2022/11/Zoo-Taiping.jpg",
+                description: {
+                    en: "The oldest zoo in Malaysia, housing around 1500 animals amid the lush surroundings of Taiping Lake Gardens. Famous for introducing the Night Safari concept.",
+                    bm: "Zoo tertua di Malaysia di Taman Tasik Taiping. Menawarkan pengalaman Night Safari yang mendebarkan."
+                }
+            },
+            {
+                id: 8, title: { en: "Lenggong Archaeological Gallery", bm: "Galeri Arkeologi Lenggong" }, 
+                category: "Heritage", icon: "fa-bone",
+                lat: 5.1091, lng: 100.9680, district: "Hulu Perak",
+                imageUrl: "https://www.tourismperakmalaysia.com/wp-content/uploads/2022/11/Lenggong-Valley.jpg",
+                description: {
+                    en: "Located in Kota Tampan, this archaeological Museum is a treasure trove of history, with its most famous display being the Perak Man, which dates back to the Stone Age, right around the Paleolithic Era!",
+                    bm: "Tapak Warisan Dunia UNESCO.<br><br><strong>Tarikan Utama di Muzium Arkeologi Lenggong:</strong><br>&bull; 'Perak Man', Rangka Manusia Tertua yang ditemui di Semenanjung Malaysia.<br>&bull; Terokai pelbagai artifak lain dari Zaman Batu, bertarikh kembali ke Era Paleolitik."
+                }
+            },
+            {
+                id: 11, title: { en: "Felda Residence Hot Spring Sungkai", bm: "Felda Residence Hot Spring Sungkai" }, 
+                category: "Fun", icon: "fa-hot-tub-person",
+                lat: 3.9961, lng: 101.3966, district: "Batang Padang",
+                imageUrl: "https://www.tourismperakmalaysia.com/wp-content/uploads/2022/11/Sungai-Klah-Hot-Springs.jpg",
+                description: {
+                    en: "One of the best natural hot springs in Malaysia. Nested at the foothills of the Titiwangsa Range, offering therapeutic natural springs.",
+                    bm: "Kolam air panas semula jadi terbaik di Malaysia, berlatar belakangkan Banjaran Titiwangsa."
+                }
+            },
+            {
+                id: 13, title: { en: "Kellie's Castle", bm: "Kellie's Castle" }, 
+                category: "Heritage", icon: "fa-chess-rook",
+                lat: 4.4750, lng: 101.0874, district: "Kinta",
+                description: {
+                    en: "An unfinished, ruined mansion built by Scottish planter William Kellie Smith. Known for its Moorish architecture, hidden tunnels, and mysterious history.",
+                    bm: "Rumah agam tinggalan pengusaha Scotland, William Kellie Smith. Terkenal dengan misteri dan seni bina unik."
+                }
+            },
+            {
+                id: 14, title: { en: "Tanjung Tualang Tin Dredge", bm: "Kapal Korek Tanjung Tualang" }, 
+                category: "Heritage", icon: "fa-industry",
+                lat: 4.3255, lng: 101.0538, district: "Kinta",
+                description: {
+                    en: "Malaysia's last surviving tin dredge weighing 4,500 tons. A testament to Perak's rich tin mining history.",
+                    bm: "Kapal korek bijih timah terakhir di Malaysia seberat 4,500 tan, bukti sejarah perlombongan Perak."
+                }
+            },
+            {
+                id: 15, title: { en: "Pasir Salak Historical Complex", bm: "Kompleks Sejarah Pasir Salak" }, 
+                category: "Heritage", icon: "fa-landmark",
+                lat: 4.1738, lng: 100.9463, district: "Perak Tengah",
+                description: {
+                    en: "A captivating showcase honoring the courageous local warriors who led the resistance against the British colonial administration.",
+                    bm: "Kompleks sejarah memperingati pahlawan tempatan yang menentang pentadbiran penjajah British."
+                }
+            },
+            {
+                id: 17, title: { en: "Lost World of Tambun", bm: "Lost World of Tambun" }, 
+                category: "Fun", icon: "fa-water",
+                lat: 4.6256, lng: 101.1548, district: "Kinta",
+                description: {
+                    en: "A family theme park encompassing a water park, hot springs, a petting zoo, and various exciting rides.",
+                    bm: "Taman tema seisi keluarga yang merangkumi taman air, kolam air panas, zoo mini dan pelbagai tunggangan menarik."
+                }
+            },
+            {
+                id: 18, title: { en: "Gendang Cave", bm: "Gua Gendang" }, 
+                category: "Nature", icon: "fa-dungeon",
+                lat: 5.6333, lng: 100.9833, district: "Hulu Perak",
+                description: {
+                    en: "A natural cave system in Pengkalan Hulu famous for recreation and underground stream exploration.",
+                    bm: "Sistem gua semula jadi di Pengkalan Hulu yang terkenal dengan aktiviti rekreasi dan penerokaan anak sungai bawah tanah."
+                }
+            },
+            {
+                id: 19, title: { en: "Bukit Merah Laketown Resort", bm: "Bukit Merah Laketown Resort" }, 
+                category: "Fun", icon: "fa-water-ladder",
+                lat: 5.0315, lng: 100.6580, district: "Kerian",
+                description: {
+                    en: "A popular lakefront holiday resort that also houses an Orangutan conservation center.",
+                    bm: "Resort percutian tepi tasik yang popular, juga menempatkan pusat pemuliharaan Orang Utan."
+                }
+            },
+            {
+                id: 20, title: { en: "Gunung Lang Recreational Park", bm: "Taman Rekreasi Gunung Lang" }, 
+                category: "Nature", icon: "fa-mountain",
+                lat: 4.615099, lng: 101.085838, district: "Kinta",
+                imageUrl: "https://www.tourismperakmalaysia.com/wp-content/uploads/2021/12/Gunung-Lang-768x512.jpg",
+                description: {
+                    en: "A beautiful recreational park featuring limestone hills, a man-made cascading waterfall, and a serene lake.",
+                    bm: "Taman rekreasi yang indah menampilkan bukit batu kapur, air terjun buatan, dan tasik yang mendamaikan."
+                }
+            },
+            {
+                id: 21, title: { en: "Tambun Cave", bm: "Gua Tambun" }, 
+                category: "Heritage", icon: "fa-dungeon",
+                lat: 4.60669, lng: 101.129193, district: "Kinta",
+                imageUrl: "https://www.tourismperakmalaysia.com/wp-content/uploads/2021/12/1280px-Gua_Tambun1-768x526.jpg",
+                description: {
+                    en: "A historic site famous for its Neolithic rock art and ancient paintings. Hiking time: 2hrs.",
+                    bm: "Tapak bersejarah yang terkenal dengan seni batu Neolitik dan lukisan purba. Masa mendaki: 2 jam."
+                }
+            },
+            {
+                id: 22, title: { en: "Matang Mangrove Forest Reserve", bm: "Hutan Simpan Paya Laut Matang" }, 
+                category: "Nature", icon: "fa-leaf",
+                lat: 4.8437601528780165, lng: 100.63427472872893, district: "Larut, Matang & Selama",
+                imageUrl: "https://www.tourismperakmalaysia.com/wp-content/uploads/2022/11/matang-mangrove.jpg",
+                description: {
+                    en: "Recognized as one of the best-managed mangrove forests in the world, offering serene boardwalks and rich biodiversity.",
+                    bm: "Diiktiraf sebagai salah satu hutan bakau pengurusan terbaik di dunia, menawarkan laluan pejalan kaki yang mendamaikan dan kepelbagaian biologi."
+                }
+            },
+            {
+                id: 23, title: { en: "Orang Utan Island", bm: "Pulau Orang Utan" },
+                category: "Nature", icon: "fa-paw",
+                lat: 4.994949132716554, lng: 100.66240609321203, district: "Kerian",
+                imageUrl: "https://www.tourismperakmalaysia.com/wp-content/uploads/2022/11/the-orangutan-island-of-bukit-merah.jpg",
+                description: {
+                    en: "A premier eco-tourism destination serving as a breeding, conservation, and research center for the endangered Orangutans.",
+                    bm: "Destinasi eko-pelancongan utama yang berfungsi sebagai pusat pembiakan, pemuliharaan, dan penyelidikan untuk Orang Utan yang terancam."
+                }
+            },
+            {
+                id: 31, title: { en: "Padang Ipoh", bm: "Padang Ipoh" },
+                category: "Heritage", icon: "fa-landmark",
+                lat: 4.598741629726167, lng: 101.07580024347774, district: "Kinta",
+                imageUrl: "https://lh3.googleusercontent.com/gps-cs-s/APNQkAG8RVdkRpCdjlERdDrKnJcd0N6N1smaKXd7YeEUSxfItmTZWcKF4InsK8O3bFlFDLkZn6-ckEC1iI2ej1ZbVf_DxZ9Tl522-lp9upKDY0y76dw_8KJfPeThErGwuD6Gmdt1Yuc=w203-h136-k-no",
+                description: {
+                    en: "The historic town square of Ipoh, flanked by grand colonial-era buildings including the iconic Ipoh Railway Station and Town Hall, a proud symbol of the city's British heritage.",
+                    bm: "Dataran bandar bersejarah Ipoh, diapit bangunan-bangunan era kolonial yang megah termasuk Stesen Kereta Api Ipoh dan Dewan Bandaran yang ikonik, simbol kebanggaan warisan British bandar ini."
+                }
+            },
+            {
+                id: 30, title: { en: "Ipoh Mural Art's Lane", bm: "Lorong Seni Mural Ipoh" },
+                category: "Heritage", icon: "fa-paintbrush",
+                lat: 4.593731960339609, lng: 101.08216778099712, district: "Kinta",
+                imageUrl: "https://lh3.googleusercontent.com/gps-cs-s/APNQkAE46Uh6P0Pvchx2K2mrBnV3DT38UFf_nu8C7DdsWADtMtX7kRzr-rw9ntS8T70cQCjtiLzx0YaK-PR5hTwZGrdDueNkzENhMH7e6ISh_iWSNHEHfUuauQ0QafPQOj3AGQDvAyrZBQ=w408-h306-k-no",
+                description: {
+                    en: "A vibrant alleyway in Ipoh Old Town adorned with striking murals and interactive steel rod sculptures, blending street art with the city's rich colonial heritage.",
+                    bm: "Lorong berwarna-warni di Bandar Lama Ipoh yang dihiasi mural menakjubkan dan arca rod besi interaktif, memadukan seni jalanan dengan warisan kolonial bandar yang kaya."
+                }
+            },
+            {
+                id: 29, title: { en: "Kinta Riverwalk", bm: "Kinta Riverwalk" },
+                category: "Nature", icon: "fa-person-walking",
+                lat: 4.603879539341505, lng: 101.08048175401022, district: "Kinta",
+                imageUrl: "https://lh3.googleusercontent.com/gps-cs-s/APNQkAGrvjtL2j4oAUyUdXvTHbgrBoY-MC6yxTGD8oBnFUAWHRoF47Mx-q4TRdvqpd_xhg6AWoxnohoXfBBsdrZLuscNALFozSoHwSMA9OE9tb8Af4yvnq48e1qZoE2HphESNYAT_8m_=s677-k-no",
+                description: {
+                    en: "A scenic riverside promenade along Sungai Kinta in the heart of Ipoh, perfect for leisurely evening strolls with views of the city skyline and lush greenery.",
+                    bm: "Promenad tepi sungai yang indah di sepanjang Sungai Kinta di jantung Ipoh, sesuai untuk berjalan-jalan santai pada waktu petang dengan pemandangan kaki langit bandar."
+                }
+            },
+            {
+                id: 28, title: { en: "Masjid Panglima Kinta", bm: "Masjid Panglima Kinta" },
+                category: "Heritage", icon: "fa-mosque",
+                lat: 4.593735171589072, lng: 101.08073928284577, district: "Kinta",
+                imageUrl: "https://lh3.googleusercontent.com/gps-cs-s/APNQkAHVF49JZvlOj3OUvEOcoan29ixEvf6Gkymv1BBZQjjBc839DStZRUknHmra0_9eUjzqRB0k_OwVJADHvlkEaShAFM7pemFvizPPkuJlVq04vB5K68PLK087AKuklN9pU_s0u7QZ=w408-h307-k-no",
+                description: {
+                    en: "One of the oldest mosques in Ipoh, featuring a distinctive blend of Moorish and colonial architecture, standing as a symbol of faith and heritage in the heart of Kinta Valley.",
+                    bm: "Antara masjid tertua di Ipoh, menampilkan gabungan unik seni bina Moorish dan kolonial, berdiri sebagai simbol keimanan dan warisan di jantung Lembah Kinta."
+                }
+            },
+            {
+                id: 27, title: { en: "Pasar Karat Ipoh", bm: "Pasar Karat Ipoh" },
+                category: "Heritage", icon: "fa-store",
+                lat: 4.597625258934126, lng: 101.08269335371685, district: "Kinta",
+                imageUrl: "https://lh3.googleusercontent.com/gps-cs-s/APNQkAG55WTmGDu0x91saz8lOY2xtjKjTxoAHa-Q45v6woYXo6Ili0efpp4EtXmhTG2Re7X4l46FjCn-WIfFLhI4xaO8TXuisUR1r9ZtwUda7rLwGiiisl5PO1gGkdTRteksSybpX_KZK9Rk-r-t=w408-h306-k-no",
+                description: {
+                    en: "Ipoh's beloved flea market held every weekend, offering a treasure trove of antiques, vintage collectibles, local snacks, and handmade crafts.",
+                    bm: "Pasar cabuk kesayangan Ipoh yang diadakan setiap hujung minggu, menawarkan pelbagai barangan antik, koleksi vintaj, makanan tempatan, dan kraftangan."
+                }
+            },
+            {
+                id: 26, title: { en: "Gopeng White Water Rafting", bm: "Arum Jeram Gopeng" },
+                category: "Fun", icon: "fa-water",
+                lat: 4.443998607263125, lng: 101.1986186558256, district: "Kampar",
+                imageUrl: "https://lh3.googleusercontent.com/gps-cs-s/APNQkAGmwjvQl-VzntD2UUdf8JMgHguPCBWYx555NaymYPkqQS6ll3bn63TDzRgJ-qYHxJ6lWErl9EnvPBrMe3XEABN4rUq0l0LoRtD4x0kMEburXQqab5tBiU5-5b2BlZKqaWDMPSoi=w408-h543-k-no",
+                description: {
+                    en: "An exhilarating white water rafting experience along the rapids of Sungai Kampar in Gopeng, suitable for adventure seekers of all levels.",
+                    bm: "Pengalaman arum jeram yang mendebarkan di sepanjang jeram Sungai Kampar di Gopeng, sesuai untuk pencari cabaran semua peringkat."
+                }
+            },
+            {
+                id: 25, title: { en: "Kledang Saiong Eco Forest Park", bm: "Taman Hutan Eko Kledang Saiong" },
+                category: "Nature", icon: "fa-tree",
+                lat: 4.684083985923664, lng: 101.06841805637252, district: "Kinta",
+                imageUrl: "https://lh3.googleusercontent.com/gps-cs-s/APNQkAEotD-k0C6Vnq7D_wC6e9bqXfJ_ziUkW1eWubIF6IE04MXU0u4eZRPWHPY7eUQaYht7g8alr71cjlyueJNyhGnZbonw8w94yfL45i2-a1EObXp2knQ82Xw_NkU6N578xRiyFOllyg=w424-h240-k-no",
+                description: {
+                    en: "A lush eco forest park on the slopes of Kledang Range offering scenic hiking trails, fresh air, and panoramic views over Ipoh.",
+                    bm: "Taman hutan eko yang hijau di lereng Banjaran Kledang, menawarkan laluan mendaki yang indah, udara segar, dan pemandangan panoramik ke atas Ipoh."
+                }
+            },
+            {
+                id: 24, title: { en: "The 7 Lata of Selama", bm: "7 Lata Selama" },
+                category: "Nature", icon: "fa-water",
+                lat: 5.211617588250836, lng: 100.78160055999658, district: "Larut, Matang & Selama",
+                imageUrl: "https://www.tourismperakmalaysia.com/wp-content/uploads/2022/11/8EE9B59B-C4D0-4652-8167-8C31595CF79D-1024x683.jpeg",
+                description: {
+                    en: "A district boasting seven captivating cascades and waterfalls (e.g., Lata Rambong, Lata Puteh), perfect for water-based outdoor activities and camping.",
+                    bm: "Sebuah daerah yang mempunyai tujuh air terjun yang menakjubkan (contohnya Lata Rambong, Lata Puteh), sesuai untuk aktiviti luar dan perkhemahan."
+                }
+            }
+        ];
+
+        // Tagapag-update ng statikong salin
+        function updateStaticText() {
+            document.getElementById('subtitle-text').innerText = t[currentLang].subtitle;
+            document.getElementById('tab-dest-text').innerText = t[currentLang].tabDest;
+            document.getElementById('tab-info-text').innerText = t[currentLang].tabInfo;
+            
+            document.getElementById('filter-all-text').innerText = t[currentLang].filterall;
+            document.getElementById('filter-heritage-text').innerText = t[currentLang].filterHeritage;
+            document.getElementById('filter-nature-text').innerText = t[currentLang].filterNature;
+            document.getElementById('filter-fun-text').innerText = t[currentLang].filterFun;
+            
+            document.getElementById('medical-title').innerText = t[currentLang].medicalTitle;
+            document.getElementById('data-extracted-text').innerHTML = `${t[currentLang].dataExtracted}<br/>PERAK MAP 15 X 14 BM.pdf`;
+
+            document.getElementById('btn-default-text').innerText = t[currentLang].btnDefault;
+            document.getElementById('btn-sat-text').innerText = t[currentLang].btnSat;
+            document.getElementById('search-input').placeholder = t[currentLang].searchPlaceholder;
+        }
+
+        // --- Map Initialization ---
+        const map = L.map('map', {
+            zoomControl: false 
+        }).setView([4.65, 101.0], 8); 
+
+        // Define map tile layers
+        const defaultMapLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+            maxZoom: 18
+        });
+
+        const satelliteMapLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Tiles &copy; Esri',
+            maxZoom: 18
+        });
+
+        // Initialize with default map
+        defaultMapLayer.addTo(map);
+
+        L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+        // --- Layer Toggle Logic ---
+        const btnMapDefault = document.getElementById('btn-map-default');
+        const btnMapSatellite = document.getElementById('btn-map-satellite');
+
+        btnMapDefault.addEventListener('click', () => {
+            if (!map.hasLayer(defaultMapLayer)) {
+                map.removeLayer(satelliteMapLayer);
+                map.addLayer(defaultMapLayer);
+                
+                btnMapDefault.className = "px-3 sm:px-4 py-2 bg-amber-100 text-amber-800 rounded-lg transition-colors flex items-center gap-2";
+                btnMapSatellite.className = "px-3 sm:px-4 py-2 text-slate-500 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-2";
+            }
+        });
+
+        btnMapSatellite.addEventListener('click', () => {
+            if (!map.hasLayer(satelliteMapLayer)) {
+                map.removeLayer(defaultMapLayer);
+                map.addLayer(satelliteMapLayer);
+                
+                btnMapSatellite.className = "px-3 sm:px-4 py-2 bg-amber-100 text-amber-800 rounded-lg transition-colors flex items-center gap-2";
+                btnMapDefault.className = "px-3 sm:px-4 py-2 text-slate-500 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-2";
+            }
+        });
+
+        // --- District Polygon Logic ---
+        let districtLayer = null;
+        
+        // Vibrant pastel palette for district fills matching brochure maps
+        const palette = [
+            '#fde047', '#86efac', '#93c5fd', '#fca5a5', 
+            '#d8b4fe', '#5eead4', '#fdba74', '#67e8f9'
+        ];
+
+        function processAndDrawGeoJSON(data) {
+            const toast = document.getElementById('loading-toast');
+            
+            const perakFeatures = data.features.filter(feature => 
+                feature.properties && 
+                feature.properties.jakim_code && 
+                feature.properties.jakim_code.startsWith('PRK')
+            );
+
+            if (perakFeatures.length === 0) return;
+
+            const perakGeoJSON = { type: "FeatureCollection", features: perakFeatures };
+            let colorIndex = 0;
+
+            districtLayer = L.geoJSON(perakGeoJSON, {
+                style: function () {
+                    const color = palette[colorIndex % palette.length];
+                    colorIndex++;
+                    return {
+                        fillColor: color,
+                        weight: 1,
+                        opacity: 1,
+                        color: '#ffffff', // Clean white dashed borders mimicking printed maps
+                        dashArray: '5, 5',
+                        fillOpacity: 0.45 
+                    };
+                },
+                onEachFeature: function (feature, layer) {
+                    if (feature.properties && feature.properties.name) {
+                        const districtName = feature.properties.name.toLowerCase().replace(/\b\w/g, s => s.toUpperCase());
+                        
+                        layer.bindTooltip(districtName, {
+                            permanent: false,
+                            direction: 'center',
+                            sticky: true,
+                            className: 'district-tooltip'
+                        });
+
+                        layer.on({
+                            mouseover: function (e) {
+                                const l = e.target;
+                                l.setStyle({ fillOpacity: 0.65, weight: 1.5, color: '#f59e0b' });
+                                l.bringToBack();
+                            },
+                            mouseout: function (e) {
+                                districtLayer.resetStyle(e.target);
+                            }
+                        });
+                    }
+                }
+            }).addTo(map);
+
+            toast.style.opacity = '0';
+            setTimeout(() => toast.remove(), 500);
+        }
+
+        // Add file upload handler
+        document.getElementById('geojson-file-input').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                try {
+                    const data = JSON.parse(event.target.result);
+                    processAndDrawGeoJSON(data);
+                } catch (err) {
+                    console.error(err);
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        // Load geojson
+        if (window.MALAYSIA_GEOJSON) {
+            processAndDrawGeoJSON(window.MALAYSIA_GEOJSON);
+        } else {
+            fetch('malaysia.district-jakim.geojson.txt')
+                .then(res => res.json())
+                .then(processAndDrawGeoJSON)
+                .catch(() => {
+                    document.getElementById('file-upload-container').classList.remove('hidden');
+                    document.getElementById('file-upload-container').classList.add('flex');
+                    document.getElementById('toast-spinner').className = "fa-solid fa-file-arrow-up text-amber-500 text-lg";
+                    document.getElementById('toast-text').innerText = "Load Border Data";
+                });
+        }
+
+
+        // --- Landmarks Logic ---
+        const markerDict = {};
+        let activeLandmarkId = null;
+
+        function getMarkerColorClass(category) {
+            if (category === "Heritage") return "marker-heritage";
+            if (category === "Nature") return "marker-nature";
+            if (category === "Fun") return "marker-fun";
+            return "bg-slate-800";
+        }
+
+        function getCategoryColorHex(category) {
+            if (category === "Heritage") return "#d97706";
+            if (category === "Nature") return "#059669";
+            if (category === "Fun") return "#2563eb";
+            return "#334155";
+        }
+
+        function renderMapAndList(filterCategory = "all") {
+            const listContainer = document.getElementById('landmark-list');
+            const searchQuery = document.getElementById('search-input').value.toLowerCase();
+            listContainer.innerHTML = '';
+            
+            Object.values(markerDict).forEach(marker => map.removeLayer(marker));
+            
+            const filteredData = landmarks.filter(item => {
+                const matchesCategory = filterCategory === "all" || item.category === filterCategory;
+                const titleEn = item.title.en.toLowerCase();
+                const titleBm = item.title.bm.toLowerCase();
+                const descEn = item.description.en.toLowerCase();
+                const descBm = item.description.bm.toLowerCase();
+                const district = item.district.toLowerCase();
+                
+                const matchesSearch = !searchQuery || 
+                                      titleEn.includes(searchQuery) || 
+                                      titleBm.includes(searchQuery) || 
+                                      descEn.includes(searchQuery) ||
+                                      descBm.includes(searchQuery) ||
+                                      district.includes(searchQuery);
+                                      
+                return matchesCategory && matchesSearch;
+            });
+
+            if (filteredData.length === 0) {
+                listContainer.innerHTML = `<div class="p-6 text-center text-slate-400 font-bold text-sm">${t[currentLang].noLocations}</div>`;
+                return;
+            }
+
+            if (userLocation) {
+                filteredData.forEach(item => {
+                    item._dist = haversineKm(userLocation.lat, userLocation.lng, item.lat, item.lng);
+                });
+                filteredData.sort((a, b) => a._dist - b._dist);
+            }
+
+            filteredData.forEach(item => {
+                const colorClass = getMarkerColorClass(item.category);
+                const colorHex = getCategoryColorHex(item.category);
+                
+                const displayTitle = item.title[currentLang];
+                const displayDesc = item.description[currentLang];
+                const displayCat = t[currentLang][`filter${item.category}`] || item.category;
+
+                // List Item HTML
+                const listItem = document.createElement('div');
+                listItem.className = `landmark-item p-4 border-b border-gray-100 cursor-pointer`;
+                listItem.id = `list-item-${item.id}`;
+                const distBadge = (userLocation && item._dist != null)
+                    ? `<span class="ml-auto pl-2 text-[10px] font-black text-slate-400 whitespace-nowrap"><i class="fa-solid fa-location-arrow mr-0.5"></i>${formatDistance(item._dist)}</span>`
+                    : '';
+
+                listItem.innerHTML = `
+                    <div class="flex items-start gap-4">
+                        <div class="mt-1 flex-shrink-0 w-10 h-10 rounded-full text-white flex items-center justify-center shadow-sm ${colorClass}">
+                            <i class="fa-solid ${item.icon} text-lg"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-start justify-between gap-1">
+                                <h3 class="font-extrabold text-slate-800 text-[15px] leading-tight">${displayTitle}</h3>
+                                ${distBadge}
+                            </div>
+                            <div class="text-[10px] font-black mt-1 uppercase tracking-widest mb-1.5" style="color: ${colorHex}">
+                                ${item.district} &bull; ${displayCat}
+                            </div>
+                            <p class="text-sm text-slate-500 line-clamp-2 mt-0.5 leading-snug font-medium">${displayDesc}</p>
+                        </div>
+                    </div>
+                `;
+
+                // Map Marker
+                const iconHtml = `<div class="custom-marker w-8 h-8 ${colorClass}" id="marker-icon-${item.id}"><i class="fa-solid ${item.icon}"></i></div>`;
+                const customIcon = L.divIcon({
+                    html: iconHtml,
+                    className: '',
+                    iconSize: [32, 32],
+                    iconAnchor: [16, 16],
+                    popupAnchor: [0, -16]
+                });
+
+                const marker = L.marker([item.lat, item.lng], { icon: customIcon }).addTo(map);
+                markerDict[item.id] = marker;
+
+                const bgImage = item.imageUrl ? item.imageUrl : `https://picsum.photos/seed/perak${item.id}/400/200`;
+
+                // Popup Template
+                const popupContent = `
+                    <div class="bg-white w-full">
+                        <div class="h-36 flex flex-col justify-end relative bg-cover bg-center" style="background-image: url('${bgImage}');">
+                           <div class="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent"></div>
+                           <div class="absolute top-3 right-3 w-8 h-8 rounded-full ${colorClass} flex items-center justify-center text-white shadow-md border-2 border-white/20"><i class="fa-solid ${item.icon}"></i></div>
+                           <div class="px-5 pb-4 z-10 text-left w-full relative">
+                               <span class="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded bg-white/20 text-white backdrop-blur-sm inline-block mb-1 border border-white/30">${displayCat}</span>
+                               <h3 class="font-black text-xl leading-tight text-white drop-shadow-md">${displayTitle}</h3>
+                           </div>
+                        </div>
+                        <div class="p-5">
+                            <p class="text-xs text-slate-400 font-bold uppercase tracking-wider mb-2"><i class="fa-solid fa-map-pin mr-1" style="color: ${colorHex}"></i> ${item.district}</p>
+                            <p class="text-[13px] font-medium text-slate-600 leading-relaxed mb-5">${displayDesc}</p>
+                            <a href="https://www.google.com/maps/dir/?api=1&destination=${item.lat},${item.lng}" target="_blank" rel="noopener noreferrer" class="flex items-center justify-center w-full gap-2 px-4 py-3 rounded-lg text-sm font-bold shadow-md hover:shadow-lg transition-all ${colorClass} hover:brightness-110">
+                                <i class="fa-solid fa-diamond-turn-right text-lg text-white"></i> <span class="text-white">${t[currentLang].driveHere}</span>
+                            </a>
+                        </div>
+                    </div>
+                `;
+                marker.bindPopup(popupContent, { closeButton: false });
+
+                marker.bindTooltip(displayTitle, {
+                    direction: 'top',
+                    offset: [0, -16],
+                    className: 'landmark-tooltip'
+                });
+
+                // Interactions
+                listItem.addEventListener('click', () => {
+                    activateLandmark(item.id);
+                    if (window.innerWidth < 640) document.getElementById('side-panel').classList.add('collapsed');
+                });
+
+                listItem.addEventListener('mouseenter', () => {
+                    if (activeLandmarkId !== item.id) {
+                        const markerIcon = document.getElementById(`marker-icon-${item.id}`);
+                        if (markerIcon) markerIcon.classList.add('hover-marker');
+                        marker.openTooltip();
+                    }
+                });
+
+                listItem.addEventListener('mouseleave', () => {
+                    const markerIcon = document.getElementById(`marker-icon-${item.id}`);
+                    if (markerIcon) markerIcon.classList.remove('hover-marker');
+                    marker.closeTooltip();
+                });
+
+                marker.on('click', () => { activateLandmark(item.id); });
+
+                listContainer.appendChild(listItem);
+            });
+        }
+
+        function activateLandmark(id) {
+            if (activeLandmarkId !== null) {
+                const prevItem = document.getElementById(`list-item-${activeLandmarkId}`);
+                if (prevItem) prevItem.classList.remove('active');
+                
+                const prevMarkerIcon = document.getElementById(`marker-icon-${activeLandmarkId}`);
+                if(prevMarkerIcon) prevMarkerIcon.classList.remove('active-marker');
+            }
+
+            activeLandmarkId = id;
+            const item = landmarks.find(l => l.id === id);
+
+            const listItem = document.getElementById(`list-item-${id}`);
+            if (listItem) {
+                listItem.classList.add('active');
+                listItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+
+            const marker = markerDict[id];
+            if (marker) {
+                map.flyTo([item.lat, item.lng], Math.max(map.getZoom(), 12), { duration: 1.5 });
+                marker.openPopup();
+                
+                setTimeout(() => {
+                    const markerIcon = document.getElementById(`marker-icon-${id}`);
+                    if(markerIcon) markerIcon.classList.add('active-marker');
+                }, 50); 
+            }
+        }
+
+        renderMapAndList();
+
+        // --- Filters & Tabs & Language Logic ---
+        document.getElementById('lang-toggle').addEventListener('click', () => {
+            currentLang = currentLang === 'en' ? 'bm' : 'en';
+            
+            const langEn = document.getElementById('lang-en');
+            const langBm = document.getElementById('lang-bm');
+            
+            if (currentLang === 'en') {
+                langEn.classList.remove('opacity-60');
+                langEn.classList.add('text-amber-300');
+                langBm.classList.add('opacity-60');
+                langBm.classList.remove('text-amber-300');
+            } else {
+                langBm.classList.remove('opacity-60');
+                langBm.classList.add('text-amber-300');
+                langEn.classList.add('opacity-60');
+                langEn.classList.remove('text-amber-300');
+            }
+            
+            updateStaticText();
+            const currentFilter = document.querySelector('.filter-btn.active').getAttribute('data-filter');
+            map.closePopup();
+            renderMapAndList(currentFilter);
+        });
+
+        const filterBtns = document.querySelectorAll('.filter-btn');
+        filterBtns.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                // Reset styling
+                filterBtns.forEach(b => {
+                    b.className = "filter-btn px-4 py-1.5 bg-gray-100 text-gray-500 rounded-full text-xs font-bold whitespace-nowrap hover:bg-gray-200 transition-colors border border-transparent";
+                });
+                
+                // Active styling
+                e.currentTarget.className = "filter-btn px-4 py-1.5 bg-yellow-200 text-amber-900 rounded-full text-xs font-bold whitespace-nowrap active border border-yellow-400 transition-colors";
+                
+                const filter = e.currentTarget.getAttribute('data-filter');
+                activeLandmarkId = null;
+                map.closePopup();
+                renderMapAndList(filter);
+                map.flyTo([4.65, 101.0], 8, { duration: 1 });
+            });
+        });
+
+        // Search Input Event Listener
+        document.getElementById('search-input').addEventListener('input', () => {
+            const currentFilter = document.querySelector('.filter-btn.active').getAttribute('data-filter');
+            activeLandmarkId = null;
+            map.closePopup();
+            renderMapAndList(currentFilter);
+        });
+
+        const tabBtns = document.querySelectorAll('.tab-btn');
+        const views = {
+            'destinasi-view': document.getElementById('destinasi-view'),
+            'info-view': document.getElementById('info-view')
+        };
+
+        tabBtns.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                tabBtns.forEach(b => b.classList.remove('active', 'border-amber-500', 'text-amber-600'));
+                e.currentTarget.classList.add('active', 'border-amber-500', 'text-amber-600');
+                
+                Object.values(views).forEach(v => {
+                    v.classList.remove('flex');
+                    v.classList.add('hidden');
+                });
+                
+                const targetId = e.currentTarget.getAttribute('data-target');
+                views[targetId].classList.remove('hidden');
+                views[targetId].classList.add('flex');
+            });
+        });
+
+        // Mobile Panel Toggle
+        const sidePanel = document.getElementById('side-panel');
+        document.getElementById('open-panel-btn').addEventListener('click', () => sidePanel.classList.remove('collapsed'));
+        document.getElementById('close-panel-btn').addEventListener('click', () => sidePanel.classList.add('collapsed'));
+
+        map.on('click', () => {
+            if (activeLandmarkId !== null) {
+                const prevItem = document.getElementById(`list-item-${activeLandmarkId}`);
+                if (prevItem) prevItem.classList.remove('active');
+
+                const prevMarkerIcon = document.getElementById(`marker-icon-${activeLandmarkId}`);
+                if(prevMarkerIcon) prevMarkerIcon.classList.remove('active-marker');
+                activeLandmarkId = null;
+            }
+        });
+
+        // --- Discover Perak Events Panel ---
+        const EVENTS_API = 'https://www.tourismperakmalaysia.com/wp-json/tribe/events/v1/events';
+        const eventsList = document.getElementById('events-list');
+        const eventsPanel = document.getElementById('events-panel');
+        const eventsChevron = document.getElementById('events-panel-chevron');
+        let eventsCollapsed = false;
+
+        document.getElementById('events-panel-header').addEventListener('click', () => {
+            eventsCollapsed = !eventsCollapsed;
+            eventsList.style.display = eventsCollapsed ? 'none' : '';
+            eventsChevron.style.transform = eventsCollapsed ? 'rotate(-90deg)' : '';
+        });
+
+        function formatEventDate(start, end) {
+            const s = new Date(start);
+            const e = new Date(end);
+            const opts = { day: 'numeric', month: 'short', year: 'numeric' };
+            const ss = s.toLocaleDateString('en-MY', opts);
+            const es = e.toLocaleDateString('en-MY', opts);
+            return ss === es ? ss : `${ss} – ${es}`;
+        }
+
+        function decodeHtml(html) {
+            const txt = document.createElement('textarea');
+            txt.innerHTML = html;
+            return txt.value;
+        }
+
+        async function loadEvents() {
+            try {
+                const res = await fetch(EVENTS_API);
+                if (!res.ok) throw new Error('API error');
+                const data = await res.json();
+                const events = data.events || [];
+
+                if (events.length === 0) {
+                    eventsList.innerHTML = `<p class="text-center text-slate-400 text-sm py-6">No upcoming events.</p>`;
+                    return;
+                }
+
+                eventsList.innerHTML = events.map(ev => {
+                    const title = decodeHtml(ev.title || '');
+                    const date = formatEventDate(ev.start_date, ev.end_date);
+                    const venue = decodeHtml((ev.venue && ev.venue.venue) ? ev.venue.venue : '');
+                    const img = ev.image ? ev.image.url || ev.image : null;
+                    const url = ev.url || '#';
+
+                    return `
+                    <a href="${url}" target="_blank" rel="noopener noreferrer"
+                       class="flex gap-3 px-3 py-3 hover:bg-amber-50 transition-colors group">
+                        ${img ? `<img src="${img}" alt="" class="w-14 h-14 rounded-lg object-cover flex-shrink-0 shadow-sm group-hover:shadow-md transition-shadow">`
+                              : `<div class="w-14 h-14 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0"><i class="fa-solid fa-calendar-days text-amber-400 text-xl"></i></div>`}
+                        <div class="min-w-0">
+                            <p class="text-[13px] font-bold text-slate-800 leading-snug line-clamp-2 group-hover:text-amber-600 transition-colors">${title}</p>
+                            <p class="text-[11px] text-amber-600 font-bold mt-1"><i class="fa-regular fa-calendar mr-1"></i>${date}</p>
+                            ${venue ? `<p class="text-[11px] text-slate-400 truncate"><i class="fa-solid fa-location-dot mr-1"></i>${venue}</p>` : ''}
+                        </div>
+                    </a>`;
+                }).join('');
+
+            } catch (err) {
+                eventsList.innerHTML = `<p class="text-center text-slate-400 text-sm py-6">Could not load events.</p>`;
+                console.warn('Events API error:', err);
+            }
+        }
+
+        loadEvents();
+
+        // --- Current Location ---
+        let locationMarker = null;
+        let userLocation = null; // { lat, lng }
+
+        function haversineKm(lat1, lng1, lat2, lng2) {
+            const R = 6371;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLng = (lng2 - lng1) * Math.PI / 180;
+            const a = Math.sin(dLat / 2) ** 2 +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLng / 2) ** 2;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        }
+
+        function formatDistance(km) {
+            return km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`;
+        }
+
+        function showLocateToast(msg) {
+            const existing = document.getElementById('locate-toast');
+            if (existing) existing.remove();
+            const el = document.createElement('div');
+            el.id = 'locate-toast';
+            el.className = 'absolute z-[1100] bottom-32 right-4 sm:right-6 bg-slate-800 text-white text-xs font-semibold px-4 py-3 rounded-xl shadow-xl max-w-xs leading-relaxed';
+            el.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-amber-400 mr-2"></i>${msg}`;
+            document.body.appendChild(el);
+            setTimeout(() => el.remove(), 6000);
+        }
+
+        function getLocationDiagnostics() {
+            const protocol = window.location.protocol || 'unknown';
+            const host = window.location.host || 'local-file';
+            const supported = !!navigator.geolocation;
+            const secure = !!window.isSecureContext;
+            return `Protocol: ${protocol} | Host: ${host} | Secure: ${secure ? 'yes' : 'no'} | Geolocation: ${supported ? 'available' : 'missing'}`;
+        }
+
+        function getLocateFailureMessage(err) {
+            if (!window.isSecureContext) {
+                return 'Location requires HTTPS or localhost. Open this page from a local server.';
+            }
+
+            switch (err.code) {
+                case 1:
+                    return 'Location permission denied.';
+                case 2:
+                    return 'Unable to determine your current location.';
+                case 3:
+                    return 'Location request timed out. Try again.';
+                default:
+                    return 'Unable to access your location.';
+            }
+        }
+
+        function flyToLocation(onSuccess) {
+            const icon = document.getElementById('btn-locate-icon');
+
+            if (!navigator.geolocation) {
+                showLocateToast(`Geolocation is not supported in this browser. ${getLocationDiagnostics()}`);
+                return;
+            }
+
+            if (!window.isSecureContext) {
+                showLocateToast(`Location requires HTTPS or localhost. Open this page from a local server. ${getLocationDiagnostics()}`);
+                return;
+            }
+
+            showLocateToast('Requesting your location...');
+            icon.className = 'fa-solid fa-circle-notch fa-spin text-amber-500 text-base';
+
+            navigator.geolocation.getCurrentPosition(
+                pos => {
+                    const { latitude: lat, longitude: lng } = pos.coords;
+                    icon.className = 'fa-solid fa-location-crosshairs text-amber-500 text-base';
+                    userLocation = { lat, lng };
+
+                    if (locationMarker) map.removeLayer(locationMarker);
+                    locationMarker = L.circleMarker([lat, lng], {
+                        radius: 9,
+                        fillColor: '#f59e0b',
+                        color: '#fff',
+                        weight: 3,
+                        fillOpacity: 1
+                    }).addTo(map).bindTooltip('You are here', { permanent: false, direction: 'top' });
+
+                    map.flyTo([lat, lng], Math.max(map.getZoom(), 14), { duration: 1.5 });
+                    const activeFilter = document.querySelector('.filter-btn.active')?.getAttribute('data-filter') || 'all';
+                    renderMapAndList(activeFilter);
+                    if (onSuccess) onSuccess();
+                },
+                err => {
+                    icon.className = 'fa-solid fa-location-crosshairs text-slate-400 text-base';
+                    console.warn('Geolocation error:', err.message);
+                    showLocateToast(getLocateFailureMessage(err));
+                },
+                { enableHighAccuracy: true, timeout: 8000 }
+            );
+        }
+
+        document.getElementById('btn-locate').addEventListener('click', () => flyToLocation());
+
+        if (navigator.permissions?.query) {
+            navigator.permissions.query({ name: 'geolocation' }).then(result => {
+                if (result.state === 'granted') {
+                    flyToLocation();
+                }
+            }).catch(() => {});
+        }
+
+    </script>
+</body>
+</html>
